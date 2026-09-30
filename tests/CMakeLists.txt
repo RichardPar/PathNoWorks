@@ -44,3 +44,7 @@ if (TARGET pnw-fs)
                       ${CPPDECNET_BIN}/dnfal)
     set_tests_properties (fs_smoke PROPERTIES TIMEOUT 180)
 endif ()
+
+add_executable (test_cterm test_cterm.cc)
+target_link_libraries (test_cterm PRIVATE pnwcterm)
+add_test (NAME cterm COMMAND test_cterm)

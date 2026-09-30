@@ -112,6 +112,16 @@ public:
 
     const std::string &path () const noexcept { return path_; }
 
+    // For programs that wait on the API and something else together: the
+    // socket to poll, and whether a message is already waiting in memory
+    // (in which case polling would wait for nothing).
+    int fd () const noexcept { return fd_; }
+    bool buffered () const noexcept
+    {
+        return !queued_.empty ()
+            || pending_.find ('\n', start_) != std::string::npos;
+    }
+
     // The node the server runs, from the system list.
     const std::string &system () const noexcept { return system_; }
 

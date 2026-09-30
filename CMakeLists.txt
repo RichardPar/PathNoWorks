@@ -64,9 +64,11 @@ endif ()
 
 add_subdirectory (lib/pnwclient)
 add_subdirectory (lib/pnwdap)
+add_subdirectory (lib/pnwcterm)
 add_subdirectory (tools/pnw-ncp)
 add_subdirectory (tools/pnw-nft)
 add_subdirectory (tools/pnw-fs)
+add_subdirectory (tools/pnw-sethost)
 
 enable_testing ()
 add_subdirectory (tests)

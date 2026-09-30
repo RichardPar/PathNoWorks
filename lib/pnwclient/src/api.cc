@@ -254,8 +254,11 @@ std::optional<Bytes> Link::recv (Timeout t)
         if (type == "disconnect" || type == "reject" || type == "abort") {
             open_ = false;
             reason_ = static_cast<unsigned> (m->num ("reason"));
-            throw ApiError ("link closed by the far end: "
-                            + reason_text (reason_));
+            // Reason 0 on a link that was running is a plain disconnect,
+            // not "rejected by object".
+            throw ApiError (reason_ == 0
+                            ? std::string ("link closed by the far end")
+                            : "link closed by the far end: " + reason_text (reason_));
         }
         if (m->has ("error"))
             throw ApiError ("decnetd: " + m->str ("error"));
