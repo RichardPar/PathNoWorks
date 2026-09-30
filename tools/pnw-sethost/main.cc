@@ -13,6 +13,7 @@
 
 #include "pnw/api.h"
 #include "pnw/cterm.h"
+#include "pnw/term.h"
 
 #include <cerrno>
 #include <csignal>
@@ -35,99 +36,6 @@ constexpr std::uint8_t ESCAPE_KEY = 0x1d;           // Ctrl-]
 
 volatile std::sig_atomic_t resized = 0;
 void on_winch (int) { resized = 1; }
-
-// The local terminal in raw, 8-bit mode for as long as this lives.
-class RawTerminal {
-public:
-    RawTerminal ()
-    {
-        ok_ = ::isatty (STDIN_FILENO) && ::tcgetattr (STDIN_FILENO, &saved_) == 0;
-        if (!ok_) return;
-        termios raw = saved_;
-        ::cfmakeraw (&raw);
-        raw.c_cc[VMIN] = 1;
-        raw.c_cc[VTIME] = 0;
-        ::tcsetattr (STDIN_FILENO, TCSANOW, &raw);
-    }
-    ~RawTerminal () { if (ok_) ::tcsetattr (STDIN_FILENO, TCSANOW, &saved_); }
-
-private:
-    bool    ok_ = false;
-    termios saved_ {};
-};
-
-void size (std::uint16_t &w, std::uint16_t &h)
-{
-    winsize ws {};
-    if (::ioctl (STDOUT_FILENO, TIOCGWINSZ, &ws) == 0 && ws.ws_col && ws.ws_row) {
-        w = ws.ws_col;
-        h = ws.ws_row;
-    }
-}
-
-void write_all (int fd, const std::uint8_t *p, std::size_t n)
-{
-    while (n) {
-        ssize_t w = ::write (fd, p, n);
-        if (w < 0 && errno == EINTR) continue;
-        if (w <= 0) return;
-        p += w;
-        n -= static_cast<std::size_t> (w);
-    }
-}
-
-// Between the node's 8-bit character set and a UTF-8 terminal.  VMS sends
-// 8-bit controls (CSI as the single byte 0x9b) to a VT300 and DEC
-// Multinational -- as good as Latin-1 -- for text; a UTF-8 terminal takes
-// neither.  So: C1 controls go out as their 7-bit equivalents, ESC and the
-// byte less 0x40, which every VT terminal and emulator accepts; Latin-1
-// goes out as UTF-8; UTF-8 typed comes in as Latin-1.  Sixel and ReGIS
-// data are 7-bit inside their control strings, and pass as they are.
-class Utf8Bridge {
-public:
-    decnet::Bytes out (decnet::ByteView b) const
-    {
-        decnet::Bytes r;
-        r.reserve (b.size ());
-        for (std::uint8_t c : b) {
-            if (c < 0x80) r.push_back (c);
-            else if (c < 0xa0) { r.push_back (0x1b); r.push_back (static_cast<std::uint8_t> (c - 0x40)); }
-            else { r.push_back (static_cast<std::uint8_t> (0xc0 | (c >> 6)));
-                   r.push_back (static_cast<std::uint8_t> (0x80 | (c & 0x3f))); }
-        }
-        return r;
-    }
-
-    decnet::Bytes in (decnet::ByteView b)
-    {
-        decnet::Bytes r;
-        for (std::uint8_t c : b) {
-            if (need_ == 0) {
-                if (c < 0x80) { r.push_back (c); continue; }
-                if ((c & 0xe0) == 0xc0) { code_ = c & 0x1f; need_ = 1; }
-                else if ((c & 0xf0) == 0xe0) { code_ = c & 0x0f; need_ = 2; }
-                else if ((c & 0xf8) == 0xf0) { code_ = c & 0x07; need_ = 3; }
-                else r.push_back ('?');
-                continue;
-            }
-            if ((c & 0xc0) != 0x80) { need_ = 0; r.push_back ('?'); continue; }
-            code_ = (code_ << 6) | (c & 0x3f);
-            if (--need_ == 0)
-                r.push_back (code_ <= 0xff ? static_cast<std::uint8_t> (code_) : '?');
-        }
-        return r;
-    }
-
-private:
-    unsigned code_ = 0, need_ = 0;
-};
-
-bool utf8_locale ()
-{
-    std::setlocale (LC_CTYPE, "");
-    const char *cs = ::nl_langinfo (CODESET);
-    return cs && std::string (cs) == "UTF-8";
-}
 
 // PNW_TRACE=file: every message to and from the node, in hex.
 std::FILE *trace_file = nullptr;
@@ -173,10 +81,10 @@ int main (int argc, char **argv)
     }
     if (node.empty ()) { usage (); return 2; }
     for (char &c : node) c = static_cast<char> (std::toupper (static_cast<unsigned char> (c)));
-    size (term.width, term.height);
+    pnw::terminal_size (term.width, term.height);
     if (const char *t = std::getenv ("PNW_TRACE")) trace_file = std::fopen (t, "w");
-    bool bridge = !raw8 && utf8_locale ();
-    Utf8Bridge utf8;
+    bool bridge = !raw8 && pnw::utf8_locale ();
+    pnw::Utf8Bridge utf8;
 
     std::unique_ptr<pnw::Api> api;
     std::unique_ptr<pnw::Link> link;
@@ -198,15 +106,15 @@ int main (int argc, char **argv)
     std::signal (SIGWINCH, on_winch);
     std::string ended = "connection closed by " + node;
     {
-        RawTerminal raw;
+        pnw::RawTerminal raw;
         pnw::Cterm cterm (term,
             [&] (decnet::ByteView m) { trace (">", m); link->send (m); },
             [&] (decnet::ByteView b) {
                 if (bridge) {
                     decnet::Bytes u = utf8.out (b);
-                    write_all (STDOUT_FILENO, u.data (), u.size ());
+                    pnw::write_all (STDOUT_FILENO, u.data (), u.size ());
                 } else {
-                    write_all (STDOUT_FILENO, b.data (), b.size ());
+                    pnw::write_all (STDOUT_FILENO, b.data (), b.size ());
                 }
             });
 
@@ -216,7 +124,7 @@ int main (int argc, char **argv)
                 if (resized) {
                     resized = 0;
                     std::uint16_t w = term.width, h = term.height;
-                    size (w, h);
+                    pnw::terminal_size (w, h);
                     cterm.resize (w, h);
                 }
                 int wait = -1;

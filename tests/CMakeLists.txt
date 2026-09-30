@@ -48,3 +48,7 @@ endif ()
 add_executable (test_cterm test_cterm.cc)
 target_link_libraries (test_cterm PRIVATE pnwcterm)
 add_test (NAME cterm COMMAND test_cterm)
+
+add_executable (test_lat test_lat.cc)
+target_link_libraries (test_lat PRIVATE pnwlat)
+add_test (NAME lat COMMAND test_lat)
