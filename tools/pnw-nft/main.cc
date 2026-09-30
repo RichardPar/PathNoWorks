@@ -114,8 +114,10 @@ int dir (pnw::Api &api, const Options &o)
                        size.c_str (), date.c_str ());
         std::cout << line;
         if (e.protection) {
-            if (!e.protection->owner.empty ())
-                std::cout << "  [" << e.protection->owner << "]";
+            const std::string &own = e.protection->owner;
+            // VMS sends a UIC with its brackets; a Unix FAL a bare name.
+            if (!own.empty ())
+                std::cout << "  " << (own[0] == '[' ? own : "[" + own + "]");
             std::cout << "  " << e.protection->vms ();
         }
         std::cout << "\n";
@@ -195,6 +197,10 @@ int upload (pnw::Api &api, const Options &o)
         }
 
         std::uint64_t bytes = 0;
+        struct stat st {};
+        std::optional<std::uint64_t> size;
+        if (::stat (local.c_str (), &st) == 0)
+            size = static_cast<std::uint64_t> (st.st_size);
         std::string name = s.put (path, text, [&] {
             decnet::Bytes b (8192);
             in.read (reinterpret_cast<char *> (b.data ()),
@@ -202,7 +208,7 @@ int upload (pnw::Api &api, const Options &o)
             b.resize (static_cast<std::size_t> (in.gcount ()));
             bytes += b.size ();
             return b;
-        });
+        }, size);
         if (in.bad ()) throw pnw::ApiError ("error reading " + local);
         std::cerr << local << " -> " << spec.node << "::"
                   << (name.empty () ? path : name) << " (" << bytes

@@ -55,7 +55,8 @@ struct Listing {
 struct OpenFile {
     std::string path;
     Bytes       data;
-    bool        dirty = false;
+    bool        dirty = false;          // the node does not have this yet
+    bool        written = false;        // written since it was last sent
 };
 
 struct Mount {
@@ -317,7 +318,7 @@ int fs_write (const char *, const char *buf, size_t size, off_t off,
     size_t end = static_cast<size_t> (off) + size;
     if (d.size () < end) d.resize (end);
     std::memcpy (d.data () + off, buf, size);
-    it->second.dirty = true;
+    it->second.dirty = it->second.written = true;
     return static_cast<int> (size);
 }
 
@@ -329,7 +330,7 @@ int fs_truncate (const char *cpath, off_t size, fuse_file_info *fi)
             auto it = m.files.find (fi->fh);
             if (it == m.files.end ()) return -EBADF;
             it->second.data.resize (static_cast<size_t> (size));
-            it->second.dirty = true;
+            it->second.dirty = it->second.written = true;
             return 0;
         }
         // Not open: fetch, cut and send back.
@@ -345,33 +346,49 @@ int fs_truncate (const char *cpath, off_t size, fuse_file_info *fi)
             if (sent) return Bytes ();
             sent = true;
             return data;
-        });
+        }, data.size ());
         forget (m, cpath);
         return 0;
     });
 }
 
+// Send a file to the node.
+void send_file (Mount &m, OpenFile &f)
+{
+    bool sent = false;
+    m.session ().put (m.tree->spec (f.path), pnw::looks_like_text (f.data),
+                      [&] {
+                          if (sent) return Bytes ();
+                          sent = true;
+                          return f.data;
+                      }, f.data.size ());
+    f.dirty = f.written = false;
+    forget (m, f.path);
+}
+
+// A close.  The shell's "> file" opens, duplicates and closes the first
+// descriptor before anything is written, and on VMS every send makes a new
+// version: so send only what has been written since the last send.  An
+// error here reaches the program, as a failed close.
 int fs_flush (const char *, fuse_file_info *fi)
 {
     return guard ([&] (Mount &m) {
         auto it = m.files.find (fi->fh);
-        if (it == m.files.end () || !it->second.dirty) return 0;
-        OpenFile &f = it->second;
-        bool sent = false;
-        m.session ().put (m.tree->spec (f.path), pnw::looks_like_text (f.data),
-                          [&] {
-                              if (sent) return Bytes ();
-                              sent = true;
-                              return f.data;
-                          });
-        f.dirty = false;
-        forget (m, f.path);
+        if (it == m.files.end () || !it->second.written) return 0;
+        send_file (m, it->second);
         return 0;
     });
 }
 
+// The last close.  A file created and never written ("touch") is sent
+// here, so that it exists; an error now can only be logged.
 int fs_release (const char *, fuse_file_info *fi)
 {
+    guard ([&] (Mount &m) {
+        auto it = m.files.find (fi->fh);
+        if (it != m.files.end () && it->second.dirty) send_file (m, it->second);
+        return 0;
+    });
     mount ().files.erase (fi->fh);
     return 0;
 }

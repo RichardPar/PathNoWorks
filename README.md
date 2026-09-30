@@ -1,116 +1,99 @@
 # PathNoWorks
 
-Pathworks-style DECnet tools for Linux (Windows later), in C++20.
+Pathworks-style DECnet tools for Linux, in C++20: network management, file
+access and a network drive for VMS, RSX and HECnet, from a Linux desktop.
 
-The network stack is [cppdecnet](../Decnet/cppdecnet): `decnetd` runs the
-DECnet Phase IV node, and the PathNoWorks tools talk to it through its API
-socket. The tools need no privileges and never touch the wire.
+The DECnet node itself is [cppdecnet](../Decnet/cppdecnet)'s `decnetd`.
+The tools talk to it through its API socket, so they need no privileges
+and never touch the network directly.
 
 ```
-pnw-ncp, (later) pnw-sethost, pnw-dir, pnw-copy, pnw-fs, ...
+pnw-ncp  pnw-dir  pnw-type  pnw-copy  pnw-delete  pnw-rename  pnw-fs
         |  JSON over a Unix socket (PyDECnet's API)
-decnetd (cppdecnet): routing, NSP, session control, MOP, NICE
+decnetd (cppdecnet): routing, NSP, session control, MOP, NICE, FAL
         |  Ethernet (pcap/TAP), Multinet, DDCMP
-DECnet: VMS, RSX, HECnet
+DECnet: VMS, RSX, PyDECnet, HECnet
 ```
 
-## Status
+## Tools
 
-| Tool | What it does |
-|---|---|
-| `pnw-ncp` | NCP subset: `SHOW`/`LIST` over NICE (object 19), `LOOP NODE` through MIRROR, `TELL` |
-| `pnw-dir` | List remote files through FAL (object 17), with size, date, owner and protection |
-| `pnw-type` | Write a remote file to standard output |
-| `pnw-copy` | Copy a file from or to a remote node; `--text` or `--binary` to override the automatic choice |
-| `pnw-delete` | Delete remote files (wildcards allowed) |
-| `pnw-rename` | Rename a remote file |
-| `pnw-fs` | Mount a remote directory (FUSE); `--rw` to write, delete and rename |
+| Tool | What it does | Guide |
+|---|---|---|
+| `pnw-ncp` | NCP: `SHOW` and `LIST` network information from any node, `LOOP NODE` | [pnw-ncp](docs/pnw-ncp.md) |
+| `pnw-dir` | List remote files | [file access](docs/file-access.md) |
+| `pnw-type` | Show a remote file | [file access](docs/file-access.md) |
+| `pnw-copy` | Copy files to and from remote nodes, wildcards included | [file access](docs/file-access.md) |
+| `pnw-delete` | Delete remote files | [file access](docs/file-access.md) |
+| `pnw-rename` | Rename a remote file | [file access](docs/file-access.md) |
+| `pnw-fs` | Mount a remote directory as a local one (FUSE) | [pnw-fs](docs/pnw-fs.md) |
 
-To serve files from this machine, run cppdecnet's `dnfal` as object 17,
-with a user file for access control; see the cppdecnet README.
+To let other nodes reach files on this machine, cppdecnet has `dnfal`, a
+FAL with its own access control; see "File access" in the cppdecnet
+README.
 
-Without a user in the file spec the tools connect anonymously. `--proxy`
-asks for proxy access as your local user instead, as VMS does by default;
-it is not the default here because PyDECnet's FAL takes any user name as a
-login.
+New here? [Getting started](docs/getting-started.md) goes from building to
+copying your first file.
 
-`pnw-fs` fetches a file whole when it is opened and, on a `--rw` mount,
-sends it back whole when it is closed; directory listings are cached for
-five seconds. VMS versions are hidden (the highest is shown) and `.DIR`
-files appear as directories. The size of a VMS text file is FAL's estimate,
-since records become lines on the way; reads still return every byte, but
-appending to such a file may land at the wrong place. Directories cannot be
-made or removed. It needs libfuse 3 (`fuse3` and `libfuse3-dev`) and is
-skipped at build time without it.
+## Quick look
 
 ```sh
-pnw-fs 'VMS"user password"::DUA0:[USER]' ~/vms
-ls ~/vms; cat ~/vms/LOGIN.COM
+export DECNETAPI=/run/decnet/api.sock        # decnetd's "api" socket
+
+pnw-ncp show known nodes
+pnw-ncp tell MIM show executor characteristics
+pnw-ncp loop node MIM count 5
+
+pnw-dir  'VMSNOD"user password"::SYS$LOGIN:*.COM'
+pnw-copy 'MIM::HECNET.DAT' .
+pnw-copy *.txt 'VMSNOD"user password"::[USER]'
+
+pnw-fs 'VMSNOD"user password"::DUA0:[USER]' ~/vms
 fusermount3 -u ~/vms
 ```
 
-Planned, in order:
-`pnw-sethost` (CTERM), LAT in decnetd,
-Mail-11, then Windows and a Qt GUI.
+Quote remote file specifications: the shell treats `[ ] * ; " $`
+specially.
 
 ## Build
 
-Needs CMake 3.20+, GCC 13+ or Clang 16+, and a cppdecnet checkout, by
-default at `../Decnet/cppdecnet`. CMake builds cppdecnet with its own
-Makefile.
+Needs CMake 3.20+, GCC 13+ or Clang 16+, and cppdecnet, by default at
+`../Decnet/cppdecnet`; CMake builds it with its own Makefile. `pnw-fs`
+also needs FUSE 3 (`fuse3` and `libfuse3-dev`) and is left out without it.
 
 ```sh
 cmake -S . -B build              # -DCPPDECNET_DIR=/path/to/cppdecnet
 cmake --build build
-ctest --test-dir build           # starts decnetd nodes and drives the tools
+ctest --test-dir build
 ```
 
-The file access tests run against both cppdecnet's `dnfal` and PyDECnet's
-`fal.py`; the latter is skipped if PyDECnet is not at
-`../Decnet/pydecnet/pydecnet` (`-DPYDECNET_DIR=...`).
+The tests start real decnetd nodes on this machine and drive the tools
+against them: NCP, file access against both `dnfal` and PyDECnet's
+`fal.py`, access control, and the FUSE mount. The PyDECnet tests are
+skipped if PyDECnet is not at `../Decnet/pydecnet/pydecnet`
+(`-DPYDECNET_DIR=...`), and the mount test without FUSE.
 
 `-DCPPDECNET_FLAVOUR=debug` links cppdecnet's sanitizer build and builds
 PathNoWorks with the sanitizers too.
 
-## Running
+## Status and plans
 
-Give decnetd an API socket in its configuration:
+Everything above is tested against OpenVMS VAX 6.2 (DECnet-VAX 6.1) as
+well as cppdecnet and PyDECnet: NCP, directory, text and binary copies in
+both directions, rename, delete and the FUSE mount. RSX has been tried
+for NCP and loopback only.
 
-```
-api /tmp/decnetapi.sock --mode 660
-```
-
-Then:
-
-```sh
-pnw-ncp show known nodes
-pnw-ncp tell MIM show executor characteristics
-pnw-ncp loop node MIM count 5 length 100
-pnw-ncp                          # NCP> prompt
-
-pnw-dir  'VMS"user password"::SYS$LOGIN:*.COM'
-pnw-type 'VMS"user password"::LOGIN.COM'
-pnw-copy 'MIM::HECNET.DAT' nodes.dat
-pnw-copy notes.txt 'VMS"user password"::[USER]'
-pnw-copy 'VMS"user password"::[USER]*.COM' ./coms/     # every match
-pnw-copy *.txt 'VMS"user password"::[USER]'             # several at once
-pnw-delete 'VMS"user password"::NOTES.TXT;*'
-```
-
-Quote remote file specs: the shell treats `[ ] * ; "` specially. Text
-files (records with carriage return control) arrive with one newline per
-record; anything else is copied as stored and cut to its real length.
-
-The socket is `$DECNETAPI`, `/tmp/decnetapi.sock` by default, or `-s path`.
-Keywords abbreviate to three letters, as in NCP.
+Planned: `pnw-sethost` (CTERM remote login), LAT in decnetd, Mail-11, then
+Windows and a Qt GUI.
 
 ## Layout
 
 ```
+docs/             user guides
 lib/pnwclient/    client for the decnetd API: Api, Link
-lib/pnwdap/       DAP client (NFT): directory, get, record conversion
+lib/pnwdap/       DAP client (NFT): directory, get, put, erase, rename;
+                  record conversion; remote path names
 tools/pnw-ncp/    Network Control Program
 tools/pnw-nft/    pnw-dir, pnw-type, pnw-copy, pnw-delete, pnw-rename
 tools/pnw-fs/     FUSE mount
-tests/            integration tests against real decnetd nodes
+tests/            unit tests, and integration tests against real nodes
 ```

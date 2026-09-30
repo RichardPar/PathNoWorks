@@ -138,6 +138,8 @@ private:
     std::string                path_;
     int                        fd_ = -1;
     std::string                pending_;
+    std::size_t                start_ = 0;     // next line starts here
+    std::size_t                scanned_ = 0;   // no newline before here
     std::deque<json::Object>   queued_;
     std::int64_t               tag_ = 0;
     std::string                system_;

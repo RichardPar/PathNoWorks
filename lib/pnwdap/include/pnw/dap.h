@@ -52,6 +52,7 @@ private:
 // One file in a directory listing.
 struct DirEntry {
     std::string volume, directory, name;
+    std::string spec;                   // full specification, if sent
     std::optional<dapm::Attributes> attributes;
     std::optional<dapm::DateTime>   dates;
     std::optional<dapm::Protection> protection;
@@ -103,10 +104,15 @@ public:
                           const std::function<void (decnet::ByteView)> &sink);
 
     // Write a file, reading its contents from source until it returns an
-    // empty chunk.  Text goes as one record per line; binary as 512 byte
-    // records.  Returns the name the server gave the new file, if it said.
+    // empty chunk.  Text goes as one record per line.  Binary goes as 512
+    // byte fixed length records -- VMS's own binary format -- when size says
+    // it is a whole number of blocks; otherwise as variable length records
+    // of up to 512 bytes, since VMS refuses a short last fixed record and
+    // padding it would change the file.  Returns the name the server gave
+    // the new file, if it said.
     std::string put (const std::string &path, bool text,
-                     const std::function<Bytes ()> &source);
+                     const std::function<Bytes ()> &source,
+                     std::optional<std::uint64_t> size = std::nullopt);
 
     // Delete files matching path.
     void erase (const std::string &path);

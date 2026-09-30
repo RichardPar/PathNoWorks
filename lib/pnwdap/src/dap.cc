@@ -183,7 +183,7 @@ std::vector<DirEntry> DapSession::directory (const std::string &path)
     std::vector<DirEntry> out;
     std::string vol, dir;
     auto current = [&] () -> DirEntry & {
-        if (out.empty ()) out.push_back (DirEntry { vol, dir, {}, {}, {}, {} });
+        if (out.empty ()) out.push_back (DirEntry { vol, dir, {}, {}, {}, {}, {} });
         return out.back ();
     };
     for (;;) {
@@ -192,8 +192,15 @@ std::vector<DirEntry> DapSession::directory (const std::string &path)
             if (n->nametype[Name::volname])      vol = n->namespec;
             else if (n->nametype[Name::dirname]) dir = n->namespec;
             else if (n->nametype[Name::filename])
-                out.push_back (DirEntry { vol, dir, n->namespec, {}, {}, {} });
-            else if (n->nametype[Name::filespec]) current ().name = n->namespec;
+                out.push_back (DirEntry { vol, dir, n->namespec, {}, {}, {}, {} });
+            else if (n->nametype[Name::filespec]) {
+                // VMS ends each entry with its full specification, after
+                // the file name; a server that sends only this gives no
+                // file name at all.
+                DirEntry &e = current ();
+                e.spec = n->namespec;
+                if (e.name.empty ()) e.name = n->namespec;
+            }
         } else if (auto *at = std::get_if<Attributes> (&m)) {
             current ().attributes = *at;
         } else if (auto *d = std::get_if<DateTime> (&m)) {
@@ -272,6 +279,11 @@ unsigned DapSession::get_files (const std::string &path, Transfer mode,
         want.menu.set (Attributes::m_datatype);
         want.datatype = Ext ().set (Attributes::dt_image);
         send (want);
+    } else {
+        // VMS FAL insists on Attributes before an open and answers "out of
+        // sync" without them.  An empty menu asks for nothing in particular:
+        // the file as it is.
+        send (Attributes {});
     }
 
     Access a;
@@ -408,7 +420,8 @@ void DapSession::expect_complete (const char *what)
 }
 
 std::string DapSession::put (const std::string &path, bool text,
-                             const std::function<Bytes ()> &source)
+                             const std::function<Bytes ()> &source,
+                             std::optional<std::uint64_t> size)
 {
     Attributes want;
     want.menu.set (Attributes::m_datatype).set (Attributes::m_org)
@@ -423,7 +436,8 @@ std::string DapSession::put (const std::string &path, bool text,
         want.rat.set (Attributes::rat_cr);
     } else {
         want.datatype = Ext ().set (Attributes::dt_image);
-        want.rfm = Attributes::fb_fix;
+        bool blocks = size && *size % 512 == 0;
+        want.rfm = blocks ? Attributes::fb_fix : Attributes::fb_var;
         want.menu.set (Attributes::m_mrs);
         want.mrs = 512;
     }

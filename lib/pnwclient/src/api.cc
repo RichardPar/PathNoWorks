@@ -99,10 +99,18 @@ std::optional<json::Object> Api::read (Timeout t)
 {
     auto deadline = Clock::now () + t;
     for (;;) {
-        std::size_t nl = pending_.find ('\n');
+        // Lines are taken from start_ on, and only new data is searched, so a
+        // large burst costs time in proportion to its size.
+        std::size_t nl = pending_.find ('\n', scanned_);
+        if (nl == std::string::npos) scanned_ = pending_.size ();
         if (nl != std::string::npos) {
-            std::string line = pending_.substr (0, nl);
-            pending_.erase (0, nl + 1);
+            std::string line = pending_.substr (start_, nl - start_);
+            start_ = scanned_ = nl + 1;
+            if (start_ > 65536 && start_ * 2 > pending_.size ()) {
+                pending_.erase (0, start_);
+                scanned_ -= start_;
+                start_ = 0;
+            }
             try {
                 return json::Object::parse (line);
             } catch (const std::exception &e) {
@@ -114,7 +122,7 @@ std::optional<json::Object> Api::read (Timeout t)
         int r = ::poll (&p, 1, remaining (deadline));
         if (r < 0 && errno == EINTR) continue;
         if (r == 0) return std::nullopt;
-        char buf[8192];
+        char buf[65536];
         ssize_t n = ::recv (fd_, buf, sizeof buf, 0);
         if (n < 0 && errno == EINTR) continue;
         if (n <= 0) throw ApiError ("decnetd closed the API connection");
