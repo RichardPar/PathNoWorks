@@ -243,8 +243,8 @@ private:
 
 }   // namespace
 
-Attributes DapSession::get (const std::string &path, Transfer mode,
-                            const std::function<void (ByteView)> &sink)
+unsigned DapSession::get_files (const std::string &path, Transfer mode,
+                                const OpenFile &open)
 {
     // Tell FAL how we want the data, unless we will take it as it is.
     if (mode == Transfer::text) {
@@ -265,19 +265,8 @@ Attributes DapSession::get (const std::string &path, Transfer mode,
     Access a;
     a.accfunc = Access::open;
     a.filespec = path;
-    a.display.set (Access::d_main);
+    a.display.set (Access::d_main).set (Access::d_name);
     send (a);
-
-    // The file's attributes, then an Acknowledge.
-    Attributes attrs;
-    bool got = false;
-    for (;;) {
-        Message m = recv ();
-        if (auto *at = std::get_if<Attributes> (&m)) { attrs = *at; got = true; }
-        else if (auto *s = std::get_if<Status> (&m)) throw DapError (*s);
-        else if (std::holds_alternative<Ack> (m)) break;
-    }
-    if (!got) throw ApiError ("FAL sent no attributes for " + path);
 
     auto expect_ack = [&] (const char *what) {
         Message m = recv ();
@@ -287,45 +276,95 @@ Attributes DapSession::get (const std::string &path, Transfer mode,
                             + describe (m));
     };
 
-    Control c;
-    c.ctlfunc = Control::connect;
-    send (c);
-    expect_ack ("CONNECT");
-
-    Control g;
-    g.ctlfunc = Control::get;
-    g.menu.set (Control::m_rac);
-    g.rac = Control::rb_seqf;           // the whole file
-    send (g);
-
-    bool text = mode == Transfer::text
-             || (mode == Transfer::automatic && attrs.text ());
-    Converter conv (attrs, text, sink);
+    // For each file FAL found: its names and attributes, then an
+    // Acknowledge.  After the last, Access Complete.  A single file is a
+    // wildcard that matched once.
+    unsigned copied = 0;
+    std::string name;
     for (;;) {
-        Message m = recv ();
-        if (auto *d = std::get_if<Data> (&m)) {
-            conv.record (d->payload);
-        } else if (auto *s = std::get_if<Status> (&m)) {
-            if (s->eof ()) break;
-            throw DapError (*s);
-        } else {
-            throw ApiError ("FAL sent " + describe (m) + " in the middle of "
-                            + path);
+        Attributes attrs;
+        bool got = false;
+        for (;;) {
+            Message m = recv ();
+            if (auto *n = std::get_if<Name> (&m)) {
+                if (n->nametype[Name::filename] || n->nametype[Name::filespec])
+                    name = n->namespec;
+            } else if (auto *at = std::get_if<Attributes> (&m)) {
+                attrs = *at;
+                got = true;
+            } else if (auto *s = std::get_if<Status> (&m)) {
+                if (s->maccode != Status::success) throw DapError (*s);
+            } else if (std::holds_alternative<AccessComplete> (m)) {
+                return copied;
+            } else if (std::holds_alternative<Ack> (m)) {
+                break;
+            }
         }
-    }
+        if (!got) throw ApiError ("FAL sent no attributes for " + path);
+        std::string shown = name.empty () ? path : name;
 
-    AccessComplete done;
-    done.cmpfunc = AccessComplete::close;
-    send (done);
-    for (;;) {
-        Message m = recv ();
-        if (std::holds_alternative<AccessComplete> (m)) break;
-        if (auto *s = std::get_if<Status> (&m)) {
-            if (s->maccode == Status::success) break;
-            throw DapError (*s);
+        auto target = open (shown, attrs);
+        if (!target) {
+            // Skipped: closing before connecting says so.
+            AccessComplete skip;
+            skip.cmpfunc = AccessComplete::close;
+            send (skip);
+            continue;
         }
+
+        Control c;
+        c.ctlfunc = Control::connect;
+        send (c);
+        expect_ack ("CONNECT");
+
+        Control g;
+        g.ctlfunc = Control::get;
+        g.menu.set (Control::m_rac);
+        g.rac = Control::rb_seqf;           // the whole file
+        send (g);
+
+        bool text = mode == Transfer::text
+                 || (mode == Transfer::automatic && attrs.text ());
+        Converter conv (attrs, text, target->write);
+        for (;;) {
+            Message m = recv ();
+            if (auto *d = std::get_if<Data> (&m)) {
+                conv.record (d->payload);
+            } else if (auto *s = std::get_if<Status> (&m)) {
+                if (s->eof ()) break;
+                throw DapError (*s);
+            } else {
+                throw ApiError ("FAL sent " + describe (m)
+                                + " in the middle of " + shown);
+            }
+        }
+        if (target->finish) target->finish ();
+        ++copied;
+
+        AccessComplete done;
+        done.cmpfunc = AccessComplete::close;
+        send (done);
+        name.clear ();
     }
-    return attrs;
+}
+
+Attributes DapSession::get (const std::string &path, Transfer mode,
+                            const std::function<void (ByteView)> &sink)
+{
+    Attributes result;
+    unsigned n = get_files (path, mode,
+        [&] (const std::string &, const Attributes &a)
+            -> std::optional<FileTarget> {
+            result = a;
+            return FileTarget { sink, {} };
+        });
+    if (n == 0) {
+        dapm::Status s;
+        s.maccode = Status::open_error;
+        s.miccode = 062;                // file not found
+        throw DapError (s);
+    }
+    return result;
 }
 
 // ------------------------------------------------------------ writing

@@ -77,6 +77,23 @@ public:
     // returned: VMS gives device and directory in Name messages.
     std::vector<DirEntry> directory (const std::string &path);
 
+    // Where one file's contents go: write is called with each converted
+    // piece, finish once the file is complete.
+    struct FileTarget {
+        std::function<void (decnet::ByteView)> write;
+        std::function<void ()>                 finish;
+    };
+    // Asked for each file a read matches, with its name and attributes;
+    // nothing means skip it.
+    using OpenFile = std::function<std::optional<FileTarget> (
+        const std::string &name, const dapm::Attributes &attrs)>;
+
+    // Read every file matching path, wildcards allowed.  Returns how many
+    // were read.  An error part way stops the lot, after files already
+    // finished.
+    unsigned get_files (const std::string &path, Transfer mode,
+                        const OpenFile &open);
+
     // Read one file, handing its converted contents to sink in pieces.
     // Returns the attributes the server gave.
     dapm::Attributes get (const std::string &path, Transfer mode,

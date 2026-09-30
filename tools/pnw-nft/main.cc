@@ -19,6 +19,7 @@
 #include <fstream>
 #include <iostream>
 #include <map>
+#include <memory>
 #include <string>
 #include <sys/stat.h>
 #include <vector>
@@ -54,10 +55,12 @@ void usage ()
         std::cerr << "usage: pnw-rename [options] NODE::file newname\n"
                      "  Rename a remote file on the same node.\n";
     else
-        std::cerr << "usage: pnw-copy [options] NODE::file local\n"
-                     "       pnw-copy [options] local NODE::file\n"
-                     "  Copy a file from or to a remote node.  The destination\n"
-                     "  may be a directory (NODE::[DIR], NODE::dir/ or NODE::).\n"
+        std::cerr << "usage: pnw-copy [options] NODE::files local\n"
+                     "       pnw-copy [options] local... NODE::destination\n"
+                     "  Copy files from or to a remote node.  A remote wildcard\n"
+                     "  copies every match into a local directory; several local\n"
+                     "  files go into a remote directory (NODE::[DIR], NODE::dir/\n"
+                     "  or NODE::).\n"
                      "  --text      text: one record per line\n"
                      "  --binary    bytes as stored\n"
                      "  Without either, text files are recognised by content\n"
@@ -136,95 +139,159 @@ int type (pnw::Api &api, const Options &o)
     return 0;
 }
 
+bool is_directory (const std::string &path)
+{
+    struct stat st;
+    return ::stat (path.c_str (), &st) == 0 && S_ISDIR (st.st_mode);
+}
+
+// Does a remote spec name a directory, so that a file name goes after it?
+bool names_directory (const std::string &path)
+{
+    return path.empty () || path.back () == ']' || path.back () == '>'
+        || path.back () == '/' || path.back () == ':';
+}
+
+bool has_wildcard (const std::string &path)
+{
+    return path.find_first_of ("*?%") != std::string::npos;
+}
+
+// Local files to a remote node, one DAP session for all of them.
 int upload (pnw::Api &api, const Options &o)
 {
-    std::string local = o.args[0];
-    auto spec = pnw::RemoteSpec::parse (o.args[1]);
-    std::ifstream in (local, std::ios::binary);
-    if (!in) throw pnw::ApiError ("cannot open " + local + ": "
-                                  + std::strerror (errno));
-    // A destination that names a directory gets the local file's name.
-    std::string lbase = local.substr (local.find_last_of ('/') + 1);
-    if (spec.path.empty () || spec.path.back () == ']'
-        || spec.path.back () == '>' || spec.path.back () == '/'
-        || spec.path.back () == ':')
-        spec.path += lbase;
-
-    bool text;
-    if (o.mode == pnw::Transfer::automatic) {
-        char sample[4096];
-        in.read (sample, sizeof sample);
-        text = pnw::looks_like_text (decnet::ByteView (
-            reinterpret_cast<const std::uint8_t *> (sample),
-            static_cast<std::size_t> (in.gcount ())));
-        in.clear ();
-        in.seekg (0);
-    } else {
-        text = o.mode == pnw::Transfer::text;
-    }
+    std::vector<std::string> locals (o.args.begin (), o.args.end () - 1);
+    auto spec = pnw::RemoteSpec::parse (o.args.back ());
+    if (locals.size () > 1 && !names_directory (spec.path))
+        throw pnw::ApiError ("copying several files needs a directory as the "
+                             "destination, such as NODE::[DIR] or NODE::dir/");
 
     pnw::DapSession s (api, spec);
     s.set_trace (o.trace);
+    for (const std::string &local : locals) {
+        std::ifstream in (local, std::ios::binary);
+        if (!in || is_directory (local))
+            throw pnw::ApiError ("cannot read " + local + ": "
+                                 + (is_directory (local) ? std::string ("a directory")
+                                                         : std::strerror (errno)));
+        std::string path = spec.path;
+        if (names_directory (path))
+            path += local.substr (local.find_last_of ('/') + 1);
+
+        bool text;
+        if (o.mode == pnw::Transfer::automatic) {
+            char sample[4096];
+            in.read (sample, sizeof sample);
+            text = pnw::looks_like_text (decnet::ByteView (
+                reinterpret_cast<const std::uint8_t *> (sample),
+                static_cast<std::size_t> (in.gcount ())));
+            in.clear ();
+            in.seekg (0);
+        } else {
+            text = o.mode == pnw::Transfer::text;
+        }
+
+        std::uint64_t bytes = 0;
+        std::string name = s.put (path, text, [&] {
+            decnet::Bytes b (8192);
+            in.read (reinterpret_cast<char *> (b.data ()),
+                     static_cast<std::streamsize> (b.size ()));
+            b.resize (static_cast<std::size_t> (in.gcount ()));
+            bytes += b.size ();
+            return b;
+        });
+        if (in.bad ()) throw pnw::ApiError ("error reading " + local);
+        std::cerr << local << " -> " << spec.node << "::"
+                  << (name.empty () ? path : name) << " (" << bytes
+                  << " bytes, " << (text ? "text" : "binary") << ")\n";
+    }
+    return 0;
+}
+
+// Remote files here: one, or every file a wildcard matches.
+int download (pnw::Api &api, const Options &o)
+{
+    if (o.args.size () != 2)
+        throw pnw::ApiError ("copy from a remote node takes one remote "
+                             "specification (wildcards allowed) and one local "
+                             "destination");
+    auto spec = pnw::RemoteSpec::parse (o.args[0]);
+    std::string dest = o.args[1];
+    bool into_dir = is_directory (dest);
+    if (has_wildcard (spec.path) && !into_dir)
+        throw pnw::ApiError (dest + " is not a directory; a wildcard copy "
+                             "needs one");
+    if (into_dir && dest.back () != '/') dest += '/';
+
+    pnw::DapSession s (api, spec);
+    s.set_trace (o.trace);
+
+    // The file being written, so a failure can remove it.  Each goes to a
+    // temporary name and is renamed once complete.
+    std::unique_ptr<std::ofstream> out;
+    std::string tmp, local;
     std::uint64_t bytes = 0;
-    std::string name = s.put (spec.path, text, [&] {
-        decnet::Bytes b (8192);
-        in.read (reinterpret_cast<char *> (b.data ()),
-                 static_cast<std::streamsize> (b.size ()));
-        b.resize (static_cast<std::size_t> (in.gcount ()));
-        bytes += b.size ();
-        return b;
-    });
-    if (in.bad ()) throw pnw::ApiError ("error reading " + local);
-    std::cerr << local << " -> " << spec.node << "::"
-              << (name.empty () ? spec.path : name) << " (" << bytes
-              << " bytes, " << (text ? "text" : "binary") << ")\n";
+    dapm::Attributes attrs;
+    try {
+        unsigned n = s.get_files (spec.path, o.mode,
+            [&] (const std::string &name, const dapm::Attributes &a)
+                -> std::optional<pnw::DapSession::FileTarget> {
+                local = into_dir ? dest + base_name (name) : dest;
+                if (base_name (name).empty () || base_name (name).back () == '/')
+                    return std::nullopt;        // a directory: nothing to copy
+                tmp = local + ".pnw-partial";
+                out = std::make_unique<std::ofstream> (
+                    tmp, std::ios::binary | std::ios::trunc);
+                if (!*out) throw pnw::ApiError ("cannot create " + tmp + ": "
+                                                + std::strerror (errno));
+                bytes = 0;
+                attrs = a;
+                pnw::DapSession::FileTarget t;
+                t.write = [&] (decnet::ByteView b) {
+                    out->write (reinterpret_cast<const char *> (b.data ()),
+                                static_cast<std::streamsize> (b.size ()));
+                    bytes += b.size ();
+                };
+                t.finish = [&, name] {
+                    out->close ();
+                    if (!*out) throw pnw::ApiError ("error writing " + tmp);
+                    out.reset ();
+                    if (std::rename (tmp.c_str (), local.c_str ()) != 0)
+                        throw pnw::ApiError ("cannot rename to " + local + ": "
+                                             + std::strerror (errno));
+                    tmp.clear ();
+                    std::cerr << spec.node << "::" << name << " -> " << local
+                              << " (" << bytes << " bytes, "
+                              << dapm::Attributes::rfm_name (attrs.rfm)
+                              << (attrs.text () ? ", text" : "") << ")\n";
+                };
+                return t;
+            });
+        if (n == 0) {
+            std::cerr << "pnw-copy: no files matched " << spec.node << "::"
+                      << spec.path << "\n";
+            return 1;
+        }
+        if (n > 1) std::cerr << n << " files copied\n";
+    } catch (...) {
+        out.reset ();
+        if (!tmp.empty ()) std::remove (tmp.c_str ());
+        throw;
+    }
     return 0;
 }
 
 int copy (pnw::Api &api, const Options &o)
 {
-    if (o.args.size () != 2) { usage (); return 2; }
-    bool from = pnw::RemoteSpec::is_remote (o.args[0]);
-    bool to = pnw::RemoteSpec::is_remote (o.args[1]);
-    if (from == to)
-        throw pnw::ApiError ("one of the two files must be remote (NODE::file) "
-                             "and the other local");
-    if (to) return upload (api, o);
-    auto spec = pnw::RemoteSpec::parse (o.args[0]);
-    std::string local = o.args[1];
-    struct stat st;
-    if (::stat (local.c_str (), &st) == 0 && S_ISDIR (st.st_mode)) {
-        if (local.back () != '/') local += '/';
-        local += base_name (spec.path);
-    }
-
-    // Write to a temporary name so a failed copy leaves nothing behind.
-    std::string tmp = local + ".pnw-partial";
-    std::ofstream out (tmp, std::ios::binary | std::ios::trunc);
-    if (!out) throw pnw::ApiError ("cannot create " + tmp + ": "
-                                   + std::strerror (errno));
-    pnw::DapSession s (api, spec);
-    s.set_trace (o.trace);
-    std::uint64_t bytes = 0;
-    try {
-        auto a = s.get (spec.path, o.mode, [&] (decnet::ByteView b) {
-            out.write (reinterpret_cast<const char *> (b.data ()),
-                       static_cast<std::streamsize> (b.size ()));
-            bytes += b.size ();
-        });
-        out.close ();
-        if (!out) throw pnw::ApiError ("error writing " + tmp);
-        if (std::rename (tmp.c_str (), local.c_str ()) != 0)
-            throw pnw::ApiError ("cannot rename to " + local + ": "
-                                 + std::strerror (errno));
-        std::cerr << spec.node << "::" << spec.path << " -> " << local << " ("
-                  << bytes << " bytes, " << dapm::Attributes::rfm_name (a.rfm)
-                  << (a.text () ? ", text" : "") << ")\n";
-    } catch (...) {
-        std::remove (tmp.c_str ());
-        throw;
-    }
-    return 0;
+    if (o.args.size () < 2) { usage (); return 2; }
+    bool to = pnw::RemoteSpec::is_remote (o.args.back ());
+    std::size_t remote_sources = 0;
+    for (std::size_t i = 0; i + 1 < o.args.size (); ++i)
+        if (pnw::RemoteSpec::is_remote (o.args[i])) ++remote_sources;
+    if (to && remote_sources == 0) return upload (api, o);
+    if (!to && remote_sources == o.args.size () - 1) return download (api, o);
+    throw pnw::ApiError ("copy either local files to NODE::destination, or "
+                         "NODE::files to a local destination");
 }
 
 int erase (pnw::Api &api, const Options &o)

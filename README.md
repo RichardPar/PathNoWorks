@@ -28,7 +28,7 @@ DECnet: VMS, RSX, HECnet
 To serve files from this machine, run cppdecnet's `dnfal` as object 17,
 with a user file for access control; see the cppdecnet README.
 
-Planned, in order: wildcard copies,
+Planned, in order: proxy access,
 `pnw-sethost` (CTERM), LAT in decnetd, a FUSE mount of remote directories,
 Mail-11, then Windows and a Qt GUI.
 
@@ -71,6 +71,8 @@ pnw-dir  'VMS"user password"::SYS$LOGIN:*.COM'
 pnw-type 'VMS"user password"::LOGIN.COM'
 pnw-copy 'MIM::HECNET.DAT' nodes.dat
 pnw-copy notes.txt 'VMS"user password"::[USER]'
+pnw-copy 'VMS"user password"::[USER]*.COM' ./coms/     # every match
+pnw-copy *.txt 'VMS"user password"::[USER]'             # several at once
 pnw-delete 'VMS"user password"::NOTES.TXT;*'
 ```
 

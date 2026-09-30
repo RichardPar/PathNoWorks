@@ -93,6 +93,17 @@ if "$TOOLS/pnw-copy" $S 'NODEA::sub/inner.txt' "$dir/i.txt" 2>/dev/null \
    && cmp -s "$dir/i.txt" "$root/sub/inner.txt"; then
     ok "copy from a subdirectory"; else fail "copy from a subdirectory"; fi
 
+mkdir "$dir/many"
+if "$TOOLS/pnw-copy" $S 'NODEA::*.txt' "$dir/many" 2>/dev/null \
+   && cmp -s "$dir/many/hello.txt" "$root/hello.txt" \
+   && [ "$(ls "$dir/many")" = "hello.txt" ]; then
+    ok "wildcard copy into a directory"
+else fail "wildcard copy into a directory"; ls "$dir/many" | sed 's/^/        /'; fi
+
+out=$("$TOOLS/pnw-copy" $S 'NODEA::*.nomatch' "$dir/many" 2>&1)
+if echo "$out" | grep -q "no files matched"; then ok "wildcard that matches nothing"
+else fail "wildcard that matches nothing"; echo "$out" | sed 's/^/        /'; fi
+
 out=$("$TOOLS/pnw-dir" $S 'NOWHERE::*' 2>&1)
 if echo "$out" | grep -q "Unrecognized node name"; then ok "unknown node"
 else fail "unknown node"; echo "$out" | sed 's/^/        /'; fi
@@ -114,6 +125,12 @@ if [ "$KIND" = dnfal ]; then
     if "$TOOLS/pnw-copy" $S 'NODEA::sub/up.bin' "$dir/back.bin" 2>/dev/null \
        && cmp -s "$dir/up.bin" "$dir/back.bin"; then ok "round trip"
     else fail "round trip"; fi
+
+    cp "$dir/up.txt" "$dir/second.txt"
+    if "$TOOLS/pnw-copy" $S "$dir/up.bin" "$dir/second.txt" 'NODEA::[SUB]' 2>/dev/null \
+       && [ -f "$root/sub/second.txt" ] && cmp -s "$dir/up.bin" "$root/sub/up.bin"; then
+        ok "several files in one copy"
+    else fail "several files in one copy"; fi
 
     if "$TOOLS/pnw-rename" $S 'NODEA::up.txt' 'moved.txt' \
        && [ -f "$root/moved.txt" ] && [ ! -e "$root/up.txt" ]; then ok "rename"
