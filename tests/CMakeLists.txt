@@ -31,3 +31,16 @@ add_test (NAME fal_auth
                   $<TARGET_FILE_DIR:pnw-dir> ${CPPDECNET_BIN}/decnetd
                   ${CPPDECNET_BIN}/dnfal)
 set_tests_properties (fal_auth PROPERTIES TIMEOUT 180)
+
+add_executable (test_names test_names.cc)
+target_link_libraries (test_names PRIVATE pnwdap)
+add_test (NAME names COMMAND test_names)
+
+# The FUSE mount, if it was built.
+if (TARGET pnw-fs)
+    add_test (NAME fs_smoke
+              COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/fs_smoke.sh
+                      $<TARGET_FILE:pnw-fs> ${CPPDECNET_BIN}/decnetd
+                      ${CPPDECNET_BIN}/dnfal)
+    set_tests_properties (fs_smoke PROPERTIES TIMEOUT 180)
+endif ()

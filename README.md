@@ -24,6 +24,7 @@ DECnet: VMS, RSX, HECnet
 | `pnw-copy` | Copy a file from or to a remote node; `--text` or `--binary` to override the automatic choice |
 | `pnw-delete` | Delete remote files (wildcards allowed) |
 | `pnw-rename` | Rename a remote file |
+| `pnw-fs` | Mount a remote directory (FUSE); `--rw` to write, delete and rename |
 
 To serve files from this machine, run cppdecnet's `dnfal` as object 17,
 with a user file for access control; see the cppdecnet README.
@@ -33,8 +34,23 @@ asks for proxy access as your local user instead, as VMS does by default;
 it is not the default here because PyDECnet's FAL takes any user name as a
 login.
 
+`pnw-fs` fetches a file whole when it is opened and, on a `--rw` mount,
+sends it back whole when it is closed; directory listings are cached for
+five seconds. VMS versions are hidden (the highest is shown) and `.DIR`
+files appear as directories. The size of a VMS text file is FAL's estimate,
+since records become lines on the way; reads still return every byte, but
+appending to such a file may land at the wrong place. Directories cannot be
+made or removed. It needs libfuse 3 (`fuse3` and `libfuse3-dev`) and is
+skipped at build time without it.
+
+```sh
+pnw-fs 'VMS"user password"::DUA0:[USER]' ~/vms
+ls ~/vms; cat ~/vms/LOGIN.COM
+fusermount3 -u ~/vms
+```
+
 Planned, in order:
-`pnw-sethost` (CTERM), LAT in decnetd, a FUSE mount of remote directories,
+`pnw-sethost` (CTERM), LAT in decnetd,
 Mail-11, then Windows and a Qt GUI.
 
 ## Build
@@ -95,5 +111,6 @@ lib/pnwclient/    client for the decnetd API: Api, Link
 lib/pnwdap/       DAP client (NFT): directory, get, record conversion
 tools/pnw-ncp/    Network Control Program
 tools/pnw-nft/    pnw-dir, pnw-type, pnw-copy, pnw-delete, pnw-rename
+tools/pnw-fs/     FUSE mount
 tests/            integration tests against real decnetd nodes
 ```
