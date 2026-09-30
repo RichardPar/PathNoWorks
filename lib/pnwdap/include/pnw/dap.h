@@ -21,6 +21,10 @@ namespace pnw {
 
 namespace dapm = decnet::dap;
 
+// Does this look like text: no NULs, and nearly all printable or white
+// space?  Used to choose how to send a file when not told.
+bool looks_like_text (decnet::ByteView sample);
+
 // NODE"user password account"::filespec, as VMS writes a remote file.
 struct RemoteSpec {
     std::string node;
@@ -78,12 +82,27 @@ public:
     dapm::Attributes get (const std::string &path, Transfer mode,
                           const std::function<void (decnet::ByteView)> &sink);
 
+    // Write a file, reading its contents from source until it returns an
+    // empty chunk.  Text goes as one record per line; binary as 512 byte
+    // records.  Returns the name the server gave the new file, if it said.
+    std::string put (const std::string &path, bool text,
+                     const std::function<Bytes ()> &source);
+
+    // Delete files matching path.
+    void erase (const std::string &path);
+
+    // Rename one file.
+    void rename (const std::string &from, const std::string &to);
+
     // Trace every message to stderr.
     void set_trace (bool on) noexcept { trace_ = on; }
 
 private:
     void send (const dapm::Message &m);
     dapm::Message recv ();
+
+    // Wait for Access Complete, throwing on an error status.
+    void expect_complete (const char *what);
 
     std::unique_ptr<Link>       link_;
     dapm::Config                remote_;

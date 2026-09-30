@@ -39,7 +39,7 @@ set (CPPDECNET_BIN "${CPPDECNET_BUILD_DIR}/bin")
 find_program (MAKE_PROGRAM NAMES gmake make REQUIRED)
 add_custom_target (cppdecnet
     COMMAND ${MAKE_PROGRAM} -C "${CPPDECNET_DIR}" BUILD=${CPPDECNET_FLAVOUR}
-            lib daemon
+            lib daemon tools
     BYPRODUCTS "${CPPDECNET_LIB}"
     COMMENT "Building cppdecnet (${CPPDECNET_FLAVOUR})"
     USES_TERMINAL)

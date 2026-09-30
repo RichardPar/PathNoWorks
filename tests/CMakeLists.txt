@@ -8,12 +8,26 @@ set (PYDECNET_DIR "${CMAKE_SOURCE_DIR}/../Decnet/pydecnet/pydecnet"
      CACHE PATH "PyDECnet source tree, for its FAL")
 get_filename_component (PYDECNET_DIR "${PYDECNET_DIR}" ABSOLUTE)
 if (EXISTS "${PYDECNET_DIR}/decnet/applications/fal.py")
-    add_test (NAME nft_smoke
+    add_test (NAME nft_pydecnet_fal
               COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/nft_smoke.sh
                       $<TARGET_FILE_DIR:pnw-dir> ${CPPDECNET_BIN}/decnetd
-                      ${PYDECNET_DIR})
-    set_tests_properties (nft_smoke PROPERTIES TIMEOUT 180)
+                      pydecnet ${PYDECNET_DIR})
+    set_tests_properties (nft_pydecnet_fal PROPERTIES TIMEOUT 180)
 else ()
     message (STATUS "PyDECnet not found at ${PYDECNET_DIR}; "
                     "skipping the file access tests")
 endif ()
+
+# And against cppdecnet's own FAL, which also takes writes.
+add_test (NAME nft_dnfal
+          COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/nft_smoke.sh
+                  $<TARGET_FILE_DIR:pnw-dir> ${CPPDECNET_BIN}/decnetd
+                  dnfal ${CPPDECNET_BIN}/dnfal)
+set_tests_properties (nft_dnfal PROPERTIES TIMEOUT 180)
+
+# dnfal's user file: who may connect, where, and whether they may write.
+add_test (NAME fal_auth
+          COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/fal_auth.sh
+                  $<TARGET_FILE_DIR:pnw-dir> ${CPPDECNET_BIN}/decnetd
+                  ${CPPDECNET_BIN}/dnfal)
+set_tests_properties (fal_auth PROPERTIES TIMEOUT 180)

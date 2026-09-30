@@ -1,13 +1,16 @@
 #!/bin/sh
-# Integration test: pnw-dir, pnw-type and pnw-copy against PyDECnet's FAL
-# (decnet/applications/fal.py), which one decnetd runs as object 17.
+# Integration test: the file tools against a FAL that one decnetd runs as
+# object 17.  Either PyDECnet's (decnet/applications/fal.py), which only
+# lists and reads, or cppdecnet's dnfal, which also writes.
 #
-#   nft_smoke.sh TOOLDIR DECNETD PYDECNET_DIR
+#   nft_smoke.sh TOOLDIR DECNETD pydecnet PYDECNET_DIR
+#   nft_smoke.sh TOOLDIR DECNETD dnfal DNFAL
 
 set -u
 TOOLS=$1
 DECNETD=$2
-PYDECNET=$3
+KIND=$3
+FAL=$4
 
 dir=$(mktemp -d /tmp/pnw.XXXXXX) || exit 1
 port=$(( 20000 + ($$ + 7) % 20000 ))
@@ -31,8 +34,13 @@ routing 1.1 --type l1router
 node 1.1 NODEA
 node 1.2 NODEB
 circuit mul-0 Multinet 127.0.0.1:$port:listen --t3 2
-object --number 17 --name FAL --file $PYDECNET/decnet/applications/fal.py --argument $root
 EOC
+if [ "$KIND" = pydecnet ]; then
+    echo "object --number 17 --name FAL --file $FAL/decnet/applications/fal.py --argument $root" >> "$dir/a.conf"
+    export PYTHONPATH=$FAL
+else
+    echo "object --number 17 --name FAL --file $FAL --argument $root --argument rw" >> "$dir/a.conf"
+fi
 cat > "$dir/b.conf" <<EOC
 routing 1.2 --type l1router
 node 1.1 NODEA
@@ -41,7 +49,7 @@ circuit mul-0 Multinet 127.0.0.1:$port:connect --t3 2
 api $dir/b.sock
 EOC
 
-PYTHONPATH=$PYDECNET "$DECNETD" "$dir/a.conf" > "$dir/a.log" 2>&1 & pids="$pids $!"
+"$DECNETD" "$dir/a.conf" > "$dir/a.log" 2>&1 & pids="$pids $!"
 "$DECNETD" "$dir/b.conf" > "$dir/b.log" 2>&1 & pids="$pids $!"
 
 S="-s $dir/b.sock"
@@ -88,6 +96,41 @@ if "$TOOLS/pnw-copy" $S 'NODEA::sub/inner.txt' "$dir/i.txt" 2>/dev/null \
 out=$("$TOOLS/pnw-dir" $S 'NOWHERE::*' 2>&1)
 if echo "$out" | grep -q "Unrecognized node name"; then ok "unknown node"
 else fail "unknown node"; echo "$out" | sed 's/^/        /'; fi
+
+if [ "$KIND" = dnfal ]; then
+    head -c 5000 /dev/urandom > "$dir/up.bin"
+    printf 'one\ntwo\r\nthree' > "$dir/up.txt"
+
+    if "$TOOLS/pnw-copy" $S "$dir/up.bin" 'NODEA::[SUB]' 2>/dev/null \
+       && cmp -s "$dir/up.bin" "$root/sub/up.bin"; then
+        ok "upload binary into a VMS style directory"
+    else fail "upload binary into a VMS style directory"; fi
+
+    if "$TOOLS/pnw-copy" $S "$dir/up.txt" 'NODEA::' 2>/dev/null \
+       && [ "$(cat "$root/up.txt")" = "$(printf 'one\ntwo\nthree')" ]; then
+        ok "upload text"
+    else fail "upload text"; fi
+
+    if "$TOOLS/pnw-copy" $S 'NODEA::sub/up.bin' "$dir/back.bin" 2>/dev/null \
+       && cmp -s "$dir/up.bin" "$dir/back.bin"; then ok "round trip"
+    else fail "round trip"; fi
+
+    if "$TOOLS/pnw-rename" $S 'NODEA::up.txt' 'moved.txt' \
+       && [ -f "$root/moved.txt" ] && [ ! -e "$root/up.txt" ]; then ok "rename"
+    else fail "rename"; fi
+
+    if "$TOOLS/pnw-delete" $S 'NODEA::[SUB]*.BIN' && [ ! -e "$root/sub/up.bin" ] \
+       && [ -f "$root/sub/inner.txt" ]; then ok "delete by wildcard"
+    else fail "delete by wildcard"; fi
+
+    out=$("$TOOLS/pnw-type" $S 'NODEA::../etc/passwd' 2>&1)
+    if echo "$out" | grep -q "error in file name"; then ok "cannot leave the root"
+    else fail "cannot leave the root"; echo "$out" | sed 's/^/        /'; fi
+
+    out=$("$TOOLS/pnw-type" $S 'NODEA::nosuch.txt' 2>&1)
+    if echo "$out" | grep -q "file not found"; then ok "type a missing file"
+    else fail "type a missing file"; echo "$out" | sed 's/^/        /'; fi
+fi
 
 if grep -q Traceback "$dir/a.log"; then
     fail "FAL raised an exception"; grep -A20 Traceback "$dir/a.log" | head -30

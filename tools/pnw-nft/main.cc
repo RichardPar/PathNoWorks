@@ -1,10 +1,14 @@
-// pnw-dir, pnw-type, pnw-copy -- remote files over DECnet.
+// pnw-dir, pnw-type, pnw-copy, pnw-delete, pnw-rename -- remote files
+// over DECnet.
 //
-// One source for three commands, built with PNW_COMMAND set to which one.
+// One source for all five, built with PNW_COMMAND set to which one.
 //
-//     pnw-dir  'MIM::[USER]*.COM'
-//     pnw-type 'VMS"user password"::LOGIN.COM'
-//     pnw-copy 'MIM::HECNET.DAT' nodes.dat
+//     pnw-dir    'MIM::[USER]*.COM'
+//     pnw-type   'VMS"user password"::LOGIN.COM'
+//     pnw-copy   'MIM::HECNET.DAT' nodes.dat
+//     pnw-copy   notes.txt 'VMS"user password"::[USER]'
+//     pnw-delete 'VMS"user password"::NOTES.TXT;*'
+//     pnw-rename 'VMS"user password"::NOTES.TXT' OLDNOTES.TXT
 //
 // Quote remote specs: the shell has opinions about [ ] * ; and ".
 
@@ -20,7 +24,7 @@
 #include <vector>
 
 #ifndef PNW_COMMAND
-#error "build with PNW_COMMAND defined as \"dir\", \"type\" or \"copy\""
+#error "build with PNW_COMMAND defined as dir, type, copy, delete or rename"
 #endif
 
 namespace dapm = decnet::dap;
@@ -43,11 +47,21 @@ void usage ()
     else if (cmd == "type")
         std::cerr << "usage: pnw-type [options] NODE::file\n"
                      "  Write a remote file to standard output.\n";
+    else if (cmd == "delete")
+        std::cerr << "usage: pnw-delete [options] NODE::spec\n"
+                     "  Delete remote files.\n";
+    else if (cmd == "rename")
+        std::cerr << "usage: pnw-rename [options] NODE::file newname\n"
+                     "  Rename a remote file on the same node.\n";
     else
         std::cerr << "usage: pnw-copy [options] NODE::file local\n"
-                     "  Copy a remote file here.  local may be a directory.\n"
-                     "  --text      ask for text records, one line each\n"
-                     "  --binary    take the bytes as stored\n";
+                     "       pnw-copy [options] local NODE::file\n"
+                     "  Copy a file from or to a remote node.  The destination\n"
+                     "  may be a directory (NODE::[DIR], NODE::dir/ or NODE::).\n"
+                     "  --text      text: one record per line\n"
+                     "  --binary    bytes as stored\n"
+                     "  Without either, text files are recognised by content\n"
+                     "  (sending) or record attributes (receiving).\n";
     std::cerr << "  -s socket   decnetd API socket (default $DECNETAPI or "
                  "/tmp/decnetapi.sock)\n"
                  "  --trace     show DAP messages\n"
@@ -122,9 +136,60 @@ int type (pnw::Api &api, const Options &o)
     return 0;
 }
 
+int upload (pnw::Api &api, const Options &o)
+{
+    std::string local = o.args[0];
+    auto spec = pnw::RemoteSpec::parse (o.args[1]);
+    std::ifstream in (local, std::ios::binary);
+    if (!in) throw pnw::ApiError ("cannot open " + local + ": "
+                                  + std::strerror (errno));
+    // A destination that names a directory gets the local file's name.
+    std::string lbase = local.substr (local.find_last_of ('/') + 1);
+    if (spec.path.empty () || spec.path.back () == ']'
+        || spec.path.back () == '>' || spec.path.back () == '/'
+        || spec.path.back () == ':')
+        spec.path += lbase;
+
+    bool text;
+    if (o.mode == pnw::Transfer::automatic) {
+        char sample[4096];
+        in.read (sample, sizeof sample);
+        text = pnw::looks_like_text (decnet::ByteView (
+            reinterpret_cast<const std::uint8_t *> (sample),
+            static_cast<std::size_t> (in.gcount ())));
+        in.clear ();
+        in.seekg (0);
+    } else {
+        text = o.mode == pnw::Transfer::text;
+    }
+
+    pnw::DapSession s (api, spec);
+    s.set_trace (o.trace);
+    std::uint64_t bytes = 0;
+    std::string name = s.put (spec.path, text, [&] {
+        decnet::Bytes b (8192);
+        in.read (reinterpret_cast<char *> (b.data ()),
+                 static_cast<std::streamsize> (b.size ()));
+        b.resize (static_cast<std::size_t> (in.gcount ()));
+        bytes += b.size ();
+        return b;
+    });
+    if (in.bad ()) throw pnw::ApiError ("error reading " + local);
+    std::cerr << local << " -> " << spec.node << "::"
+              << (name.empty () ? spec.path : name) << " (" << bytes
+              << " bytes, " << (text ? "text" : "binary") << ")\n";
+    return 0;
+}
+
 int copy (pnw::Api &api, const Options &o)
 {
     if (o.args.size () != 2) { usage (); return 2; }
+    bool from = pnw::RemoteSpec::is_remote (o.args[0]);
+    bool to = pnw::RemoteSpec::is_remote (o.args[1]);
+    if (from == to)
+        throw pnw::ApiError ("one of the two files must be remote (NODE::file) "
+                             "and the other local");
+    if (to) return upload (api, o);
     auto spec = pnw::RemoteSpec::parse (o.args[0]);
     std::string local = o.args[1];
     struct stat st;
@@ -162,6 +227,34 @@ int copy (pnw::Api &api, const Options &o)
     return 0;
 }
 
+int erase (pnw::Api &api, const Options &o)
+{
+    if (o.args.size () != 1) { usage (); return 2; }
+    auto spec = pnw::RemoteSpec::parse (o.args[0]);
+    pnw::DapSession s (api, spec);
+    s.set_trace (o.trace);
+    s.erase (spec.path);
+    return 0;
+}
+
+int rename (pnw::Api &api, const Options &o)
+{
+    if (o.args.size () != 2) { usage (); return 2; }
+    auto spec = pnw::RemoteSpec::parse (o.args[0]);
+    std::string to = o.args[1];
+    // The new name may repeat the node; it cannot change it.
+    if (pnw::RemoteSpec::is_remote (to)) {
+        auto t = pnw::RemoteSpec::parse (to);
+        if (t.node != spec.node)
+            throw pnw::ApiError ("cannot rename across nodes");
+        to = t.path;
+    }
+    pnw::DapSession s (api, spec);
+    s.set_trace (o.trace);
+    s.rename (spec.path, to);
+    return 0;
+}
+
 }   // namespace
 
 int main (int argc, char **argv)
@@ -181,6 +274,8 @@ int main (int argc, char **argv)
         pnw::Api api (o.socket);
         if (cmd == "dir")  return dir (api, o);
         if (cmd == "type") return type (api, o);
+        if (cmd == "delete") return erase (api, o);
+        if (cmd == "rename") return rename (api, o);
         return copy (api, o);
     } catch (const pnw::DapError &e) {
         std::cerr << "pnw-" << cmd << ": " << e.what () << "\n";

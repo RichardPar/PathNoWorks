@@ -328,4 +328,145 @@ Attributes DapSession::get (const std::string &path, Transfer mode,
     return attrs;
 }
 
+// ------------------------------------------------------------ writing
+
+bool looks_like_text (ByteView sample)
+{
+    std::size_t odd = 0;
+    for (std::uint8_t c : sample) {
+        if (c == 0) return false;
+        if (c < 0x20 && c != '\n' && c != '\r' && c != '\t' && c != '\f')
+            ++odd;
+    }
+    return odd * 100 <= sample.size ();
+}
+
+void DapSession::expect_complete (const char *what)
+{
+    for (;;) {
+        Message m = recv ();
+        if (std::holds_alternative<AccessComplete> (m)) return;
+        if (auto *s = std::get_if<Status> (&m)) {
+            if (s->maccode == Status::success) return;
+            throw DapError (*s);
+        }
+        if (!std::holds_alternative<Ack> (m) && !std::holds_alternative<Name> (m))
+            throw ApiError (std::string ("FAL answered ") + what + " with "
+                            + describe (m));
+    }
+}
+
+std::string DapSession::put (const std::string &path, bool text,
+                             const std::function<Bytes ()> &source)
+{
+    Attributes want;
+    want.menu.set (Attributes::m_datatype).set (Attributes::m_org)
+             .set (Attributes::m_rfm);
+    want.org = Attributes::fb_seq;
+    if (text) {
+        // Variable length records with carriage return control: a text
+        // file as VMS keeps one.
+        want.datatype = Ext ().set (Attributes::dt_ascii);
+        want.rfm = Attributes::fb_var;
+        want.menu.set (Attributes::m_rat);
+        want.rat.set (Attributes::rat_cr);
+    } else {
+        want.datatype = Ext ().set (Attributes::dt_image);
+        want.rfm = Attributes::fb_fix;
+        want.menu.set (Attributes::m_mrs);
+        want.mrs = 512;
+    }
+    send (want);
+
+    Access a;
+    a.accfunc = Access::create;
+    a.filespec = path;
+    a.fac = Ext ().set (Access::fac_put);
+    a.shr = Ext ();
+    a.display.set (Access::d_main).set (Access::d_name);
+    send (a);
+
+    std::string name;
+    for (;;) {
+        Message m = recv ();
+        if (auto *n = std::get_if<Name> (&m)) name = n->namespec;
+        else if (auto *s = std::get_if<Status> (&m)) throw DapError (*s);
+        else if (std::holds_alternative<Ack> (m)) break;
+    }
+
+    Control c;
+    c.ctlfunc = Control::connect;
+    send (c);
+    Message m = recv ();
+    if (auto *s = std::get_if<Status> (&m)) throw DapError (*s);
+    if (!std::holds_alternative<Ack> (m))
+        throw ApiError ("FAL answered CONNECT with " + describe (m));
+
+    Control p;
+    p.ctlfunc = Control::put;
+    p.menu.set (Control::m_rac);
+    p.rac = Control::rb_seqf;
+    send (p);
+
+    // Records.  A failure shows up as a Status the next time we listen,
+    // which is at the close: FAL does not acknowledge each record.
+    Bytes pending;
+    std::uint64_t recnum = 0;
+    auto record = [&] (ByteView r) {
+        send (Data { recnum++, Bytes (r.begin (), r.end ()) });
+    };
+    for (;;) {
+        Bytes chunk = source ();
+        if (chunk.empty ()) break;
+        pending.insert (pending.end (), chunk.begin (), chunk.end ());
+        if (text) {
+            auto start = pending.begin ();
+            for (auto it = pending.begin (); it != pending.end (); ++it) {
+                if (*it != '\n') continue;
+                auto end = it;
+                if (end != start && *(end - 1) == '\r') --end;
+                record (ByteView (&*start, static_cast<std::size_t> (end - start)));
+                start = it + 1;
+            }
+            pending.erase (pending.begin (), start);
+        } else {
+            std::size_t off = 0;
+            for (; pending.size () - off >= 512; off += 512)
+                record (ByteView (pending.data () + off, 512));
+            pending.erase (pending.begin (),
+                           pending.begin () + static_cast<std::ptrdiff_t> (off));
+        }
+    }
+    // What is left: a last line with no newline, or a short last block.
+    if (!pending.empty ()) record (pending);
+
+    AccessComplete done;
+    done.cmpfunc = AccessComplete::close;
+    send (done);
+    expect_complete ("CLOSE");
+    return name;
+}
+
+void DapSession::erase (const std::string &path)
+{
+    Access a;
+    a.accfunc = Access::erase;
+    a.filespec = path;
+    send (a);
+    expect_complete ("ERASE");
+}
+
+void DapSession::rename (const std::string &from, const std::string &to)
+{
+    Access a;
+    a.accfunc = Access::rename;
+    a.filespec = from;
+    send (a);
+    Name n;
+    n.nametype.set (Name::filespec);
+    n.namespec = to;
+    send (n);
+    expect_complete ("RENAME");
+}
+
 }   // namespace pnw

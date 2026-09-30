@@ -21,9 +21,14 @@ DECnet: VMS, RSX, HECnet
 | `pnw-ncp` | NCP subset: `SHOW`/`LIST` over NICE (object 19), `LOOP NODE` through MIRROR, `TELL` |
 | `pnw-dir` | List remote files through FAL (object 17), with size, date, owner and protection |
 | `pnw-type` | Write a remote file to standard output |
-| `pnw-copy` | Copy a remote file here; `--text` or `--binary` to override the automatic choice |
+| `pnw-copy` | Copy a file from or to a remote node; `--text` or `--binary` to override the automatic choice |
+| `pnw-delete` | Delete remote files (wildcards allowed) |
+| `pnw-rename` | Rename a remote file |
 
-Planned, in order: copying to remote nodes and wildcard copies,
+To serve files from this machine, run cppdecnet's `dnfal` as object 17,
+with a user file for access control; see the cppdecnet README.
+
+Planned, in order: wildcard copies,
 `pnw-sethost` (CTERM), LAT in decnetd, a FUSE mount of remote directories,
 Mail-11, then Windows and a Qt GUI.
 
@@ -39,9 +44,9 @@ cmake --build build
 ctest --test-dir build           # starts decnetd nodes and drives the tools
 ```
 
-The file access tests use PyDECnet's FAL (`fal.py`) as the far end and
-are skipped if PyDECnet is not at `../Decnet/pydecnet/pydecnet`
-(`-DPYDECNET_DIR=...`).
+The file access tests run against both cppdecnet's `dnfal` and PyDECnet's
+`fal.py`; the latter is skipped if PyDECnet is not at
+`../Decnet/pydecnet/pydecnet` (`-DPYDECNET_DIR=...`).
 
 `-DCPPDECNET_FLAVOUR=debug` links cppdecnet's sanitizer build and builds
 PathNoWorks with the sanitizers too.
@@ -65,6 +70,8 @@ pnw-ncp                          # NCP> prompt
 pnw-dir  'VMS"user password"::SYS$LOGIN:*.COM'
 pnw-type 'VMS"user password"::LOGIN.COM'
 pnw-copy 'MIM::HECNET.DAT' nodes.dat
+pnw-copy notes.txt 'VMS"user password"::[USER]'
+pnw-delete 'VMS"user password"::NOTES.TXT;*'
 ```
 
 Quote remote file specs: the shell treats `[ ] * ; "` specially. Text
@@ -80,6 +87,6 @@ Keywords abbreviate to three letters, as in NCP.
 lib/pnwclient/    client for the decnetd API: Api, Link
 lib/pnwdap/       DAP client (NFT): directory, get, record conversion
 tools/pnw-ncp/    Network Control Program
-tools/pnw-nft/    pnw-dir, pnw-type, pnw-copy
+tools/pnw-nft/    pnw-dir, pnw-type, pnw-copy, pnw-delete, pnw-rename
 tests/            integration tests against real decnetd nodes
 ```
