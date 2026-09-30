@@ -17,6 +17,9 @@
 #include <cstdio>
 #include <iostream>
 
+#include <pwd.h>
+#include <unistd.h>
+
 namespace pnw {
 
 using namespace decnet::dap;
@@ -109,7 +112,7 @@ std::optional<std::uint64_t> DirEntry::blocks () const
 
 // ------------------------------------------------------------ DapSession
 
-DapSession::DapSession (Api &api, const RemoteSpec &spec)
+DapSession::DapSession (Api &api, const RemoteSpec &spec, bool proxy)
 {
     ConnectOptions o;
     o.dest = spec.node;
@@ -117,6 +120,15 @@ DapSession::DapSession (Api &api, const RemoteSpec &spec)
     o.username = spec.user;
     o.password = spec.password;
     o.account = spec.account;
+    if (spec.user.empty () && proxy) {
+        // Proxy access: say who we are here and let the far end decide.
+        if (const passwd *pw = ::getpwuid (::geteuid ())) {
+            o.username = pw->pw_name;
+            for (char &ch : o.username)
+                ch = static_cast<char> (std::toupper (static_cast<unsigned char> (ch)));
+            o.proxy = true;
+        }
+    }
     link_ = api.connect (o);
 
     send (our_config ());

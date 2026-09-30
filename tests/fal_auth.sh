@@ -25,11 +25,14 @@ echo shared > "$root/pub/readme.txt"
 echo local > "$dir/up.txt"
 
 # RICHARD may write his own directory; GUEST may only read pub.  No "*":
-# connections without a user are refused.
+# connections without a user are refused.  Whoever runs the test, asking by
+# proxy from NODEB, is let in as RICHARD.
+me=$(id -un | tr '[:lower:]' '[:upper:]')
 {
     echo "# test users"
     echo "richard $(echo secret | "$DNFAL" --hash) home rw"
     echo "guest   -   pub  ro"
+    echo "proxy   NODEB::$me   richard"
 } > "$dir/fal.users"
 
 cat > "$dir/a.conf" <<EOC
@@ -75,6 +78,8 @@ check () {                  # check NAME PATTERN -- command...
 }
 T=$TOOLS
 check "anonymous refused"        "Access control rejected" -- $T/pnw-dir $S 'NODEA::*'
+check "proxy maps the local user" "private.txt"            -- $T/pnw-dir $S --proxy 'NODEA::*'
+check "proxy login is logged"    "by proxy as RICHARD"     -- cat "$dir/a.log"
 check "wrong password refused"   "Access control rejected" -- $T/pnw-dir $S 'NODEA"richard wrong"::*'
 check "unknown user refused"     "Access control rejected" -- $T/pnw-dir $S 'NODEA"mallory x"::*'
 check "user sees own directory"  "private.txt"             -- $T/pnw-dir $S 'NODEA"richard secret"::*'

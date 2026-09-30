@@ -68,8 +68,11 @@ enum class Transfer {
 
 class DapSession {
 public:
-    // Connect to FAL on spec's node and exchange configurations.
-    DapSession (Api &api, const RemoteSpec &spec);
+    // Connect to FAL on spec's node and exchange configurations.  With no
+    // user in spec and proxy set, ask for proxy access as the local user,
+    // as VMS does.  Not the default: PyDECnet's FAL takes any user name as
+    // a login and stops confining itself to its root directory.
+    DapSession (Api &api, const RemoteSpec &spec, bool proxy = false);
 
     const dapm::Config &remote_config () const noexcept { return remote_; }
 

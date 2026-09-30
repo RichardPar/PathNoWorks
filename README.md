@@ -28,7 +28,12 @@ DECnet: VMS, RSX, HECnet
 To serve files from this machine, run cppdecnet's `dnfal` as object 17,
 with a user file for access control; see the cppdecnet README.
 
-Planned, in order: proxy access,
+Without a user in the file spec the tools connect anonymously. `--proxy`
+asks for proxy access as your local user instead, as VMS does by default;
+it is not the default here because PyDECnet's FAL takes any user name as a
+login.
+
+Planned, in order:
 `pnw-sethost` (CTERM), LAT in decnetd, a FUSE mount of remote directories,
 Mail-11, then Windows and a Qt GUI.
 

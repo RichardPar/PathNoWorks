@@ -35,6 +35,7 @@ namespace {
 struct Options {
     std::string              socket = pnw::Api::default_path ();
     bool                     trace = false;
+    bool                     proxy = false;
     pnw::Transfer            mode = pnw::Transfer::automatic;
     std::vector<std::string> args;
 };
@@ -68,6 +69,8 @@ void usage ()
     std::cerr << "  -s socket   decnetd API socket (default $DECNETAPI or "
                  "/tmp/decnetapi.sock)\n"
                  "  --trace     show DAP messages\n"
+                 "  --proxy     without a user, ask for proxy access as the\n"
+                 "              local user, as VMS does\n"
                  "Access control: NODE\"user password account\"::file\n";
 }
 
@@ -86,7 +89,7 @@ int dir (pnw::Api &api, const Options &o)
 {
     if (o.args.size () != 1) { usage (); return 2; }
     auto spec = pnw::RemoteSpec::parse (o.args[0]);
-    pnw::DapSession s (api, spec);
+    pnw::DapSession s (api, spec, o.proxy);
     s.set_trace (o.trace);
     auto entries = s.directory (spec.path);
 
@@ -130,7 +133,7 @@ int type (pnw::Api &api, const Options &o)
 {
     if (o.args.size () != 1) { usage (); return 2; }
     auto spec = pnw::RemoteSpec::parse (o.args[0]);
-    pnw::DapSession s (api, spec);
+    pnw::DapSession s (api, spec, o.proxy);
     s.set_trace (o.trace);
     s.get (spec.path, o.mode, [] (decnet::ByteView b) {
         std::fwrite (b.data (), 1, b.size (), stdout);
@@ -166,7 +169,7 @@ int upload (pnw::Api &api, const Options &o)
         throw pnw::ApiError ("copying several files needs a directory as the "
                              "destination, such as NODE::[DIR] or NODE::dir/");
 
-    pnw::DapSession s (api, spec);
+    pnw::DapSession s (api, spec, o.proxy);
     s.set_trace (o.trace);
     for (const std::string &local : locals) {
         std::ifstream in (local, std::ios::binary);
@@ -223,7 +226,7 @@ int download (pnw::Api &api, const Options &o)
                              "needs one");
     if (into_dir && dest.back () != '/') dest += '/';
 
-    pnw::DapSession s (api, spec);
+    pnw::DapSession s (api, spec, o.proxy);
     s.set_trace (o.trace);
 
     // The file being written, so a failure can remove it.  Each goes to a
@@ -298,7 +301,7 @@ int erase (pnw::Api &api, const Options &o)
 {
     if (o.args.size () != 1) { usage (); return 2; }
     auto spec = pnw::RemoteSpec::parse (o.args[0]);
-    pnw::DapSession s (api, spec);
+    pnw::DapSession s (api, spec, o.proxy);
     s.set_trace (o.trace);
     s.erase (spec.path);
     return 0;
@@ -316,7 +319,7 @@ int rename (pnw::Api &api, const Options &o)
             throw pnw::ApiError ("cannot rename across nodes");
         to = t.path;
     }
-    pnw::DapSession s (api, spec);
+    pnw::DapSession s (api, spec, o.proxy);
     s.set_trace (o.trace);
     s.rename (spec.path, to);
     return 0;
@@ -331,6 +334,7 @@ int main (int argc, char **argv)
         std::string a = argv[i];
         if (a == "-s" && i + 1 < argc)       o.socket = argv[++i];
         else if (a == "--trace")              o.trace = true;
+        else if (a == "--proxy")              o.proxy = true;
         else if (a == "--text")               o.mode = pnw::Transfer::text;
         else if (a == "--binary")             o.mode = pnw::Transfer::binary;
         else if (a == "-h" || a == "--help") { usage (); return 0; }
