@@ -62,6 +62,19 @@ struct ConnectOptions {
 
 class Api;
 
+// A connection arriving for an object this program bound.
+struct Incoming {
+    std::int64_t handle = 0;
+    std::int64_t listen = 0;            // the bind it came through
+    std::string  node;                  // "VAXXY", or the address if unnamed
+    std::string  address;               // "29.157"
+    std::string  source_user;           // who, at the far end
+    std::string  destination;           // the object asked for
+    std::string  username, password, account;
+    bool         proxy = false;
+    Bytes        data;                  // connect data
+};
+
 // One logical link.  Disconnects when destroyed if still open.
 class Link {
 public:
@@ -133,6 +146,19 @@ public:
     // Rejected if it does not.
     std::unique_ptr<Link> connect (const ConnectOptions &o,
                                    Timeout t = default_timeout);
+
+    // Offer an object (a number, a name or both); connections to it arrive
+    // through incoming ().  Returns the bind handle.
+    std::int64_t bind (std::uint8_t number, const std::string &name);
+
+    // The next connection to a bound object, or nothing on timeout.
+    std::optional<Incoming> incoming (Timeout t);
+
+    // Take a connection, sending data with the accept.
+    std::unique_ptr<Link> accept (const Incoming &in, ByteView data = {});
+
+    // Turn one down.
+    void reject (const Incoming &in, ByteView data = {});
 
 private:
     friend class Link;

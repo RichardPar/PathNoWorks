@@ -209,6 +209,74 @@ std::unique_ptr<Link> Api::connect (const ConnectOptions &o, Timeout t)
     return link;
 }
 
+// ----------------------------------------------------------- listening
+
+std::int64_t Api::bind (std::uint8_t number, const std::string &name)
+{
+    json::Object req;
+    req.set ("api", "session");
+    req.set ("type", "bind");
+    if (number) req.set ("num", static_cast<std::int64_t> (number));
+    if (!name.empty ()) req.set ("name", name);
+    return request (std::move (req)).num ("handle");
+}
+
+std::optional<Incoming> Api::incoming (Timeout t)
+{
+    auto is_connect = [] (const json::Object &m) {
+        return m.str ("type") == "connect" && m.has ("listenhandle");
+    };
+    std::optional<json::Object> m;
+    if (auto it = std::find_if (queued_.begin (), queued_.end (), is_connect);
+        it != queued_.end ()) {
+        m = std::move (*it);
+        queued_.erase (it);
+    } else {
+        auto deadline = Clock::now () + t;
+        for (;;) {
+            auto r = read (Timeout (remaining (deadline)));
+            if (!r) return std::nullopt;
+            if (is_connect (*r)) { m = std::move (r); break; }
+            queued_.push_back (std::move (*r));
+        }
+    }
+    Incoming in;
+    in.handle = m->num ("handle");
+    in.listen = m->num ("listenhandle");
+    in.address = m->str ("destination");
+    in.node = m->str ("nodename", in.address);
+    in.source_user = m->str ("srcuser");
+    in.destination = m->str ("dstuser");
+    in.username = m->str ("username");
+    in.password = m->str ("password");
+    in.account = m->str ("account");
+    const json::Value *px = m->get ("proxy");
+    in.proxy = px && px->is_bool () && px->as_bool ();
+    in.data = m->bytes ("data");
+    return in;
+}
+
+std::unique_ptr<Link> Api::accept (const Incoming &in, ByteView data)
+{
+    json::Object o;
+    o.set ("api", "session");
+    o.set ("type", "accept");
+    o.set ("handle", in.handle);
+    o.set_bytes ("data", data);
+    send (o);
+    return std::unique_ptr<Link> (new Link (*this, in.handle));
+}
+
+void Api::reject (const Incoming &in, ByteView data)
+{
+    json::Object o;
+    o.set ("api", "session");
+    o.set ("type", "reject");
+    o.set ("handle", in.handle);
+    o.set_bytes ("data", data);
+    send (o);
+}
+
 // ------------------------------------------------------------------- Link
 
 Link::~Link ()

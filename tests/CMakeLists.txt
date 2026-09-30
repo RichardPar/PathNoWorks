@@ -52,3 +52,9 @@ add_test (NAME cterm COMMAND test_cterm)
 add_executable (test_lat test_lat.cc)
 target_link_libraries (test_lat PRIVATE pnwlat)
 add_test (NAME lat COMMAND test_lat)
+
+# Mail-11 from one node to another, both ends pnw-mail.
+add_test (NAME mail_smoke
+          COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/mail_smoke.sh
+                  $<TARGET_FILE:pnw-mail> ${CPPDECNET_BIN}/decnetd)
+set_tests_properties (mail_smoke PROPERTIES TIMEOUT 180)

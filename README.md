@@ -1,7 +1,8 @@
 # PathNoWorks
 
 Pathworks-style DECnet tools for Linux, in C++20: network management, file
-access and a network drive for VMS, RSX and HECnet, from a Linux desktop.
+access, a network drive, remote login and mail for VMS, RSX and HECnet,
+from a Linux desktop.
 
 The DECnet node itself is [cppdecnet](../Decnet/cppdecnet)'s `decnetd`.
 The DECnet tools talk to it through its API socket, so they need no
@@ -9,7 +10,7 @@ privileges and never touch the network directly. `pnw-lat` is the
 exception: LAT is not DECnet, and it speaks it on the LAN itself.
 
 ```
-pnw-ncp  pnw-sethost  pnw-dir  pnw-type  pnw-copy  pnw-delete  pnw-rename  pnw-fs
+pnw-ncp  pnw-sethost  pnw-mail  pnw-dir  pnw-type  pnw-copy  pnw-delete  pnw-rename  pnw-fs
         |  JSON over a Unix socket (PyDECnet's API)          pnw-lat
         |                                                    |  LAT, straight on the LAN
 decnetd (cppdecnet): routing, NSP, session control, MOP, NICE, FAL
@@ -30,6 +31,7 @@ DECnet: VMS, RSX, PyDECnet, HECnet
 | `pnw-fs` | Mount a remote directory as a local one (FUSE) | [pnw-fs](docs/pnw-fs.md) |
 | `pnw-sethost` | Log in to a node, as `SET HOST` does (CTERM); VT300/VT340 and Sixel through your terminal | [pnw-sethost](docs/pnw-sethost.md) |
 | `pnw-lat` | Connect to a LAT service on the LAN, as a terminal server does | [pnw-lat](docs/pnw-lat.md) |
+| `pnw-mail` | Send DECnet mail to `NODE::USER`, and take in mail for this node (Mail-11) | [pnw-mail](docs/pnw-mail.md) |
 
 To let other nodes reach files on this machine, cppdecnet has `dnfal`, a
 FAL with its own access control; see "File access" in the cppdecnet
@@ -59,6 +61,9 @@ xterm -ti vt340 -e pnw-sethost VMSNOD          # with Sixel graphics
 
 pnw-lat -l                                      # LAT services on the LAN
 pnw-lat BAJI
+
+echo Hello | pnw-mail send -s Greetings VMSNOD::SYSTEM
+pnw-mail listen                                 # mail for this node -> ~/Mail/decnet
 ```
 
 Quote remote file specifications: the shell treats `[ ] * ; " $`
@@ -78,9 +83,10 @@ ctest --test-dir build
 
 The tests start real decnetd nodes on this machine and drive the tools
 against them: NCP, file access against both `dnfal` and PyDECnet's
-`fal.py`, access control, and the FUSE mount. The PyDECnet tests are
-skipped if PyDECnet is not at `../Decnet/pydecnet/pydecnet`
-(`-DPYDECNET_DIR=...`), and the mount test without FUSE.
+`fal.py`, access control, the FUSE mount, and mail from one node to
+another. The PyDECnet tests are skipped if PyDECnet is not at
+`../Decnet/pydecnet/pydecnet` (`-DPYDECNET_DIR=...`), and the mount test
+without FUSE.
 
 `-DCPPDECNET_FLAVOUR=debug` links cppdecnet's sanitizer build and builds
 PathNoWorks with the sanitizers too.
@@ -89,10 +95,11 @@ PathNoWorks with the sanitizers too.
 
 Everything above is tested against OpenVMS VAX 6.2 (DECnet-VAX 6.1) as
 well as cppdecnet and PyDECnet: NCP, directory, text and binary copies in
-both directions, rename, delete, the FUSE mount and CTERM logins. RSX
-has been tried for NCP, loopback, CTERM and LAT (up to login).
+both directions, rename, delete, the FUSE mount, CTERM logins and mail
+both ways. RSX has been tried for NCP, loopback, CTERM and LAT (up to
+login).
 
-Planned: Mail-11, then Windows and a Qt GUI.
+Planned: Windows and a Qt GUI.
 
 ## Layout
 
@@ -103,11 +110,13 @@ lib/pnwdap/       DAP client (NFT): directory, get, put, erase, rename;
                   record conversion; remote path names
 lib/pnwcterm/     CTERM terminal end: foundation, reads, editing, writes
 lib/pnwlat/       LAT terminal end: announcements, circuit, session
+lib/pnwmail/      Mail-11 sender and receiver; mbox
 lib/pnwterm/      the local terminal: raw mode, size, UTF-8 bridge
 tools/pnw-ncp/    Network Control Program
 tools/pnw-nft/    pnw-dir, pnw-type, pnw-copy, pnw-delete, pnw-rename
 tools/pnw-fs/     FUSE mount
 tools/pnw-sethost/ CTERM remote login
 tools/pnw-lat/    LAT terminal, and pnw-latsock, its privileged helper
+tools/pnw-mail/   DECnet mail
 tests/            unit tests, and integration tests against real nodes
 ```
