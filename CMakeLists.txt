@@ -63,7 +63,9 @@ endif ()
 # -------------------------------------------------------------------- targets
 
 add_subdirectory (lib/pnwclient)
+add_subdirectory (lib/pnwdap)
 add_subdirectory (tools/pnw-ncp)
+add_subdirectory (tools/pnw-nft)
 
 enable_testing ()
 add_subdirectory (tests)
