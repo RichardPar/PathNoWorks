@@ -11,6 +11,13 @@ after an evening of reading.
 ## 1. Build cppdecnet and PathNoWorks
 
 PathNoWorks expects cppdecnet to live next door, at `../Decnet/cppdecnet`.
+It has its own repository, on
+[GitHub](https://github.com/RichardPar/cppdecnet):
+
+```sh
+git clone https://github.com/RichardPar/cppdecnet.git ../Decnet/cppdecnet
+```
+
 You don't need to build it yourself; CMake does that.
 
 ```sh

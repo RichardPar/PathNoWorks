@@ -14,7 +14,7 @@ PyDECnet and the rest of HECnet. You get network management, file
 access, a network drive, remote login, LAT terminals, mail and MOP, all
 from an ordinary Linux machine.
 
-The DECnet node itself is [cppdecnet](../Decnet/cppdecnet)'s `decnetd`.
+The DECnet node itself is [cppdecnet](https://github.com/RichardPar/cppdecnet)'s `decnetd`.
 The tools don't touch the network at all; they ask decnetd to do it for
 them over its API socket, so none of them needs root. The one rebel is
 `pnw-lat`: LAT isn't DECnet, so it goes straight onto the LAN by itself.
@@ -220,8 +220,20 @@ cppdecnet so it notices.
 
 ### Where things go
 
-PathNoWorks expects cppdecnet to be its neighbour. PyDECnet is only
-needed for some of the tests:
+PathNoWorks needs cppdecnet, which lives in its own repository at
+[github.com/RichardPar/cppdecnet](https://github.com/RichardPar/cppdecnet).
+PyDECnet, Paul Koning's DECnet in Python, is only needed for some of the
+tests; it's at [github.com/pkoning2/pydecnet](https://github.com/pkoning2/pydecnet).
+Clone them side by side and everything finds everything else:
+
+```sh
+mkdir -p ~/Source/Decnet && cd ~/Source
+git clone https://github.com/RichardPar/PathNoWorks.git
+git clone https://github.com/RichardPar/cppdecnet.git Decnet/cppdecnet
+git clone https://github.com/pkoning2/pydecnet.git    Decnet/pydecnet   # optional
+```
+
+which gives you:
 
 ```
 Source/
