@@ -42,6 +42,12 @@ protected:
     void dragMoveEvent (QDragMoveEvent *e) override;
     void dropEvent (QDropEvent *e) override;
     void startDrag (Qt::DropActions actions) override;
+    void mousePressEvent (QMouseEvent *e) override;
+    void mouseMoveEvent (QMouseEvent *e) override;
+    void mouseReleaseEvent (QMouseEvent *e) override;
+private:
+    // A drag out has started and the button that began it is still down.
+    bool drag_held_ = false;
 };
 
 class FileWindow : public QMainWindow {

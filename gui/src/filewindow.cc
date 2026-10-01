@@ -25,6 +25,7 @@
 #include <QMenu>
 #include <QMessageBox>
 #include <QMimeData>
+#include <QMouseEvent>
 #include <QPlainTextEdit>
 #include <QProcess>
 #include <QProgressDialog>
@@ -126,8 +127,36 @@ void FileList::dropEvent (QDropEvent *e)
 
 void FileList::startDrag (Qt::DropActions)
 {
-    // The window fetches the files and starts the drag itself.
+    // The window fetches the files and starts the drag itself.  The button
+    // is still down while it fetches, and the view, its drag over as far as
+    // it knows, would take the mouse moving for a drag-select and select
+    // every row it passed.  So until the button comes up, the mouse is ours.
+    drag_held_ = true;
     emit drag_wanted ();
+}
+
+void FileList::mousePressEvent (QMouseEvent *e)
+{
+    drag_held_ = false;
+    QTreeWidget::mousePressEvent (e);
+}
+
+void FileList::mouseMoveEvent (QMouseEvent *e)
+{
+    if (drag_held_ && (e->buttons () & Qt::LeftButton)) return;
+    drag_held_ = false;
+    QTreeWidget::mouseMoveEvent (e);
+}
+
+void FileList::mouseReleaseEvent (QMouseEvent *e)
+{
+    // Let go of a drag that never got going (the window was busy, or the
+    // fetch failed): the selection stays as it was.
+    if (drag_held_) {
+        drag_held_ = false;
+        return;
+    }
+    QTreeWidget::mouseReleaseEvent (e);
 }
 
 // --------------------------------------------------------------- FileWindow

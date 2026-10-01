@@ -21,6 +21,7 @@
 #include <QProcess>
 #include <QFile>
 #include <QLineEdit>
+#include <QMouseEvent>
 #include <QPlainTextEdit>
 #include <QRegularExpression>
 #include <QSettings>
@@ -159,6 +160,46 @@ private slots:
             });
             QVERIFY (!gui::decw_customize (nullptr));
         }
+    }
+
+    void drag_select ()
+    {
+        // Dragging a file out must not also select every row the mouse
+        // passes over while the files are fetched.
+        gui::FileList list;
+        list.setSelectionMode (QAbstractItemView::ExtendedSelection);
+        for (int i = 0; i < 6; ++i)
+            list.addTopLevelItem (new QTreeWidgetItem (QStringList { QString ("F%1.TXT").arg (i) }));
+        list.resize (300, 300);
+        list.show ();
+        QVERIFY (QTest::qWaitForWindowExposed (&list));
+        QWidget *vp = list.viewport ();
+        auto at = [&] (int row) { return list.visualItemRect (list.topLevelItem (row)).center (); };
+        auto send = [&] (QEvent::Type type, QPoint p, Qt::MouseButton b, Qt::MouseButtons bs) {
+            QMouseEvent e (type, p, vp->mapToGlobal (p), b, bs, Qt::NoModifier);
+            QApplication::sendEvent (vp, &e);
+        };
+        int drags = 0;
+        connect (&list, &gui::FileList::drag_wanted, &list, [&] {
+            if (drags++) return;
+            // Fetching: the button is still down and the mouse wanders.
+            for (int row = 1; row < 6; ++row)
+                send (QEvent::MouseMove, at (row), Qt::NoButton, Qt::LeftButton);
+        });
+        send (QEvent::MouseButtonPress, at (0), Qt::LeftButton, Qt::LeftButton);
+        send (QEvent::MouseMove, at (0) + QPoint (0, 2), Qt::NoButton, Qt::LeftButton);
+        send (QEvent::MouseMove, at (0) + QPoint (40, 4), Qt::NoButton, Qt::LeftButton);
+        send (QEvent::MouseButtonRelease, at (5), Qt::LeftButton, Qt::NoButton);
+        QCOMPARE (drags, 1);
+        QCOMPARE (list.selectedItems ().size (), 1);
+        QCOMPARE (list.selectedItems ()[0]->text (0), QString ("F0.TXT"));
+
+        // And the list still selects as usual afterwards.
+        send (QEvent::MouseMove, at (2), Qt::NoButton, Qt::NoButton);
+        send (QEvent::MouseButtonPress, at (2), Qt::LeftButton, Qt::LeftButton);
+        send (QEvent::MouseButtonRelease, at (2), Qt::LeftButton, Qt::NoButton);
+        QCOMPARE (list.selectedItems ().size (), 1);
+        QCOMPARE (list.selectedItems ()[0]->text (0), QString ("F2.TXT"));
     }
 
     void files ()
