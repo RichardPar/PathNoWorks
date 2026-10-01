@@ -19,7 +19,15 @@ The tools don't touch the network at all; they ask decnetd to do it for
 them over its API socket, so none of them needs root. The one rebel is
 `pnw-lat`: LAT isn't DECnet, so it goes straight onto the LAN by itself.
 
-Here's how the pieces fit together:
+Here's what it looks like. On the left is the network, as the router
+sees it; on the right, a VAX's files.
+
+<p>
+<img src="docs/images/network.png" alt="The PathNoWorks network window, listing reachable HECnet nodes" width="49%">
+<img src="docs/images/files.png" alt="A file window on VAXXY, showing a VMS directory" width="49%">
+</p>
+
+And here's how the pieces fit together:
 
 ```
 ┌────────────────────────── your Linux machine ──────────────────────────┐
@@ -125,6 +133,53 @@ pnw-mop loop BAJI -n 5
 A word of warning you'll see again: **quote remote file specifications.**
 The shell has strong opinions about `[ ] * ; " $`, and VMS file names are
 full of them.
+
+## Sending mail from the desktop
+
+`NODE::USER` mail, the way it was meant to be sent, with a mouse this
+time.
+
+1. In `pathnoworks`, click **Mail** on the toolbar, press **Ctrl+M**, or
+   right-click a node and choose **Mail**. If a node is selected, **To:**
+   starts with its name (`VMSNOD::`) and you only add the user.
+2. Fill in **To:**. Separate several addresses with commas:
+   - `VMSNOD::SYSTEM`
+   - `VMSNOD::SYSTEM, BAJI::RICHARD`
+   - `VMSNOD"user password"::SYSTEM`, for a node with no default DECnet
+     account. Without the login it answers "Access control rejected". The
+     login only lets the far end's mail server run; the mail is still
+     from you.
+3. Type a **Subject**, then the message.
+
+   ![The mail window, addressed to VAXXY::SYSTEM and BAJI::RICHARD](docs/images/mail.png)
+
+4. Click **Send**. Mail goes out under your login name, so the far end
+   sees it from `YOURNODE::YOU`.
+   - If everything got through, the window closes and the status bar says
+     who it went to.
+   - If anything didn't, the window stays open and lists each recipient
+     as sent or "NOT sent", with the far end's reason (VMS's
+     `%MAIL-E-NOSUCHUSR`, say). Fix the address and send again.
+
+The desktop only sends. To receive, leave a listener running and read the
+mbox with whatever you like:
+
+```sh
+pnw-mail listen &              # mail to this node goes into ~/Mail/decnet
+mutt -f ~/Mail/decnet
+```
+
+If VMS shows your mail as from something like `29847::RICHARD`, it just
+doesn't know your node's name yet. Log in there (the **Terminal** button
+will do) and tell it, using your own address and name:
+
+```
+$ MCR NCP DEFINE NODE 29.151 NAME PNW
+$ MCR NCP SET NODE 29.151 NAME PNW
+```
+
+There's more in [the desktop guide](docs/desktop.md) and in
+[pnw-mail](docs/pnw-mail.md).
 
 ## Building it
 

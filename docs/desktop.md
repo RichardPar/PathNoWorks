@@ -20,6 +20,8 @@ menu.
 
 ## The network
 
+![The network window](images/network.png)
+
 The main window lists the nodes decnetd knows, with each node's state,
 hops and cost. *Reachable only* hides the rest, and you'll want it:
 HECnet has well over a thousand nodes. Type part of a name or address to
@@ -37,6 +39,8 @@ actions. *PathNoWorks → Settings* sets decnetd's API socket; by default
 it's `$DECNETAPI`, then `/tmp/decnetapi.sock`.
 
 ## Files
+
+![A file window on a VMS node](images/files.png)
 
 A node's files open in a window of their own:
 
@@ -78,6 +82,8 @@ There's more in [pnw-sethost](pnw-sethost.md); `Ctrl-]` `q` gets you
 out.
 
 ## Mail
+
+![The mail window](images/mail.png)
 
 **Mail** writes a message to `NODE::USER`, or several separated by
 commas, or `NODE"user password"::USER` for a node that wants a login (see

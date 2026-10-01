@@ -114,6 +114,7 @@ FileWindow::FileWindow (const QString &node, const Login &login,
 
     auto *tb = addToolBar ("Files");
     tb->setMovable (false);
+    tb->setToolButtonStyle (Qt::ToolButtonTextBesideIcon);
     up_ = tb->addAction (QIcon::fromTheme ("go-up"), "Up", this, &FileWindow::up);
     up_->setShortcut (QKeySequence ("Alt+Up"));
     refresh_ = tb->addAction (QIcon::fromTheme ("view-refresh"), "Refresh",
@@ -121,13 +122,17 @@ FileWindow::FileWindow (const QString &node, const Login &login,
     refresh_->setShortcut (QKeySequence::Refresh);
     path_ = new QLineEdit;
     path_->setMinimumWidth (260);
+    path_->setSizePolicy (QSizePolicy::Expanding, QSizePolicy::Fixed);
     path_->setPlaceholderText ("[] for the login directory, DUA0:[USER], pub/ ...");
     path_->setToolTip ("The directory: type one and press Enter");
     tb->addWidget (path_);
     connect (path_, &QLineEdit::returnPressed, this, [this] { go_to (path_->text ()); });
 
+    // The actions on a row of their own, under the path.
+    addToolBarBreak ();
     auto *ops = addToolBar ("Actions");
     ops->setMovable (false);
+    ops->setToolButtonStyle (Qt::ToolButtonTextBesideIcon);
     download_ = ops->addAction (QIcon::fromTheme ("document-save"), "Copy here...",
                                 this, &FileWindow::ask_download);
     upload_ = ops->addAction (QIcon::fromTheme ("document-open"), "Copy there...",

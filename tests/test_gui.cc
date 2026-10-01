@@ -13,10 +13,13 @@
 
 #include "common.h"
 #include "filewindow.h"
+#include "maildialog.h"
 #include "mainwindow.h"
 
 #include <QDir>
 #include <QFile>
+#include <QLineEdit>
+#include <QPlainTextEdit>
 #include <QRegularExpression>
 #include <QSignalSpy>
 #include <QTemporaryDir>
@@ -166,10 +169,25 @@ private slots:
         if (!shots.isEmpty ()) {
             net.resize (760, 420);
             net.show ();
+            // A fresh listing, so the status bar shows it.
+            w->refresh ();
+            QVERIFY (done (*w, spy));
             w->show ();
             QTest::qWait (300);
             net.grab ().save (shots + "/network.png");
             w->grab ().save (shots + "/files.png");
+
+            // The mail window, filled in as someone might.
+            gui::MailDialog mail ("VAXXY::SYSTEM, BAJI::RICHARD");
+            auto edits = mail.findChildren<QLineEdit *> ();
+            if (edits.size () > 1) edits[1]->setText ("Greetings from Linux");
+            if (auto *body = mail.findChild<QPlainTextEdit *> ())
+                body->setPlainText ("Hello from PathNoWorks.\n\n"
+                                    "This came over DECnet, Mail-11 and all.\n");
+            mail.show ();
+            if (auto *body = mail.findChild<QPlainTextEdit *> ()) body->setFocus ();
+            QTest::qWait (300);
+            mail.grab ().save (shots + "/mail.png");
         }
 
         w->remove ({ "PNWGUI.TXT" });
