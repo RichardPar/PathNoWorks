@@ -1,0 +1,19 @@
+# fal.users -- who may reach files through dnfal, and where.
+#
+# One line per user: name, password hash, directory, access.  Directories
+# are relative to the root given to dnfal.  "-" as the password means none
+# is needed.  Make a hash with "dnfal --hash" (it reads the password), or
+# with "openssl passwd -6".
+#
+# user      password hash                  directory   access
+RICHARD     $6$replace.with.a.real.hash    richard     rw
+GUEST       -                              pub         ro
+
+# "*" is for connections that give no user at all.  Leave it out to turn
+# them away.
+*           -                              pub         ro
+
+# Proxy access: users on other nodes, let in without a password, as VMS's
+# proxy database does.  The most specific line wins; "-" refuses.
+proxy       VAXXY::RICHARD                 richard
+proxy       *::SYSTEM                      -

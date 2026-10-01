@@ -52,7 +52,11 @@ them `-s path`. To save some typing:
 export DECNETAPI=/run/decnet/api.sock
 ```
 
-Then start decnetd as the cppdecnet README describes.
+There's a complete example to start from in
+[`samples/decnetd.conf`](../samples/decnetd.conf): an endnode with a
+Multinet link to a router, and the socket at `/tmp/decnetapi.sock`, so
+the tools find it without being told. Copy it, put in your own addresses
+and names, and start decnetd as the cppdecnet README describes.
 
 ## 3. Is anybody out there?
 

@@ -128,17 +128,66 @@ full of them.
 
 ## Building it
 
-You'll need CMake 3.20+, GCC 13+ or Clang 16+, and cppdecnet, which by
-default lives next door at `../Decnet/cppdecnet`. CMake builds cppdecnet
-for you with its own Makefile. `pnw-fs` also wants FUSE 3 (`fuse3` and
-`libfuse3-dev`) and the desktop wants Qt 6 (`qt6-base-dev`). Leave either
-out and you just don't get that piece; everything else still builds.
+### What you'll need
+
+PathNoWorks is built and tested on Linux Mint 22 (Ubuntu 24.04 underneath).
+Any distribution with a new enough compiler should do; the package names
+below are Debian and Ubuntu's.
+
+| Package | Needed for | |
+|---|---|---|
+| `build-essential` (GCC 13+, or Clang 16+), `make` | everything | required |
+| `cmake` (3.20+), `pkg-config` | everything | required |
+| `libcrypt-dev` | cppdecnet (dnfal's password hashes) | required |
+| `libpcap-dev` | cppdecnet's Ethernet circuits on a real LAN (pcap), which MOP needs | optional |
+| `libfuse3-dev`, `fuse3` | `pnw-fs`, and Mount in the desktop | optional |
+| `qt6-base-dev` | the `pathnoworks` desktop and its test | optional |
+| `xterm` | terminal windows from the desktop | optional, at run time |
+| `libcap2-bin` | `setcap`, to let `pnw-lat` send LAT frames | optional, at run time |
+| `python3` and a PyDECnet checkout | the tests against PyDECnet's FAL | optional |
+
+All of it in one go:
 
 ```sh
+sudo apt install build-essential cmake pkg-config libcrypt-dev libpcap-dev \
+                 libfuse3-dev fuse3 qt6-base-dev xterm libcap2-bin
+```
+
+Leave out an optional piece and you only lose what depends on it. CMake
+says what it skipped, and everything else still builds. One catch: if you
+add `libpcap-dev` after building cppdecnet, run `make features` in
+cppdecnet so it notices.
+
+### Where things go
+
+PathNoWorks expects cppdecnet to be its neighbour. PyDECnet is only
+needed for some of the tests:
+
+```
+Source/
+├── PathNoWorks/              this
+└── Decnet/
+    ├── cppdecnet/            the DECnet node: decnetd, dnfal
+    └── pydecnet/pydecnet/    optional, for tests
+```
+
+Somewhere else is fine too: point CMake at it with
+`-DCPPDECNET_DIR=/path/to/cppdecnet` (and `-DPYDECNET_DIR=...`).
+
+### Build and test
+
+```sh
+cd PathNoWorks
 cmake -S . -B build              # -DCPPDECNET_DIR=/path/to/cppdecnet
-cmake --build build
+cmake --build build -j
 ctest --test-dir build
 ```
+
+You don't need to build cppdecnet first. CMake runs cppdecnet's own
+Makefile as part of the build, and does it again whenever cppdecnet
+changes. The tools end up under `build/tools/`, the desktop at
+`build/gui/pathnoworks`, and decnetd and dnfal under
+`../Decnet/cppdecnet/build/release/bin/`.
 
 The tests are the real thing, not mocks. They start actual decnetd nodes
 on your machine and drive the tools against them:
@@ -153,10 +202,41 @@ on your machine and drive the tools against them:
 
 The PyDECnet tests are skipped if PyDECnet isn't at
 `../Decnet/pydecnet/pydecnet` (`-DPYDECNET_DIR=...`), and the mount test
-is skipped without FUSE.
+is skipped without FUSE. Nothing in the tests touches your real network
+or your running decnetd.
 
 `-DCPPDECNET_FLAVOUR=debug` links cppdecnet's sanitizer build and builds
 PathNoWorks with the sanitizers too. Slow, but it catches things.
+
+### Install
+
+```sh
+sudo cmake --install build                       # tools, desktop and menu entry, under /usr/local
+sudo make -C ../Decnet/cppdecnet install         # decnetd and dnfal, under /usr/local
+sudo setcap cap_net_raw+ep /usr/local/bin/pnw-latsock    # only if you want pnw-lat
+```
+
+Prefer your home directory? `cmake --install build --prefix ~/.local`
+installs PathNoWorks without `sudo`. Make sure `~/.local/bin` is on your
+`PATH`.
+
+### First run
+
+[`samples/decnetd.conf`](samples/decnetd.conf) is a working endnode
+configuration to start from. It has a Multinet link to a router and the
+API socket at `/tmp/decnetapi.sock`, where every tool looks by default.
+Commented-out sections cover an Ethernet circuit with MOP, serving files
+with dnfal (with [`samples/fal.users`](samples/fal.users) to say who gets
+in), and decnetd's web page. Copy it, change the addresses and names to
+yours, and:
+
+```sh
+decnetd --log-level info decnetd.conf &
+pnw-ncp show executor
+pathnoworks
+```
+
+[Getting started](docs/getting-started.md) goes through it step by step.
 
 ## Where it's at
 
@@ -198,6 +278,7 @@ tools/pnw-lat/    LAT terminal, and pnw-latsock, its privileged helper
 tools/pnw-mail/   DECnet mail
 tools/pnw-mop/    MOP: system IDs, counters, loop
 gui/              pathnoworks, the Qt desktop
+samples/          a decnetd configuration and dnfal users file to start from
 tests/            unit tests, and integration tests against real nodes
 ```
 
