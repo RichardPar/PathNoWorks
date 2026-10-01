@@ -3,6 +3,7 @@
 #include "filewindow.h"
 
 #include "common.h"
+#include "decwindows.h"
 
 #include "pnw/names.h"
 
@@ -21,6 +22,7 @@
 #include <QInputDialog>
 #include <QLabel>
 #include <QLineEdit>
+#include <QMenu>
 #include <QMessageBox>
 #include <QMimeData>
 #include <QPlainTextEdit>
@@ -29,6 +31,7 @@
 #include <QStandardPaths>
 #include <QStatusBar>
 #include <QToolBar>
+#include <QToolButton>
 #include <QUrl>
 #include <QVBoxLayout>
 
@@ -178,6 +181,19 @@ FileWindow::FileWindow (const QString &node, const Login &login,
         if (!open_sethost (node_, &err))
             QMessageBox::warning (this, "Terminal", err);
     });
+    QMenu *decw = decw_menu (this, [this] (const DecwApp &a) {
+        status_->setText ("Starting " + a.label + " on " + node_ + "...");
+        decw_launch (this, node_, login_, a, [this] (bool ok, const QString &msg) {
+            status_->setText (ok ? msg.toHtmlEscaped ()
+                                 : "<span style='color:#c0392b'>" + msg.toHtmlEscaped () + "</span>");
+            if (!ok) QMessageBox::warning (this, "DECwindows", msg);
+        });
+    });
+    decw_ = ops->addAction (decw->icon (), "DECwindows");
+    decw_->setMenu (decw);
+    decw_->setToolTip ("Run one of " + node_ + "'s DECwindows programs, on this screen");
+    if (auto *b = qobject_cast<QToolButton *> (ops->widgetForAction (decw_)))
+        b->setPopupMode (QToolButton::InstantPopup);
 
     list_ = new FileList;
     list_->setColumnCount (5);
@@ -277,6 +293,8 @@ void FileWindow::update_actions ()
     delete_->setEnabled (!busy_ && files);
     rename_->setEnabled (!busy_ && selected (true).size () == 1);
     mount_->setText (mounted () ? "Unmount" : "Mount");
+    // DECwindows is VMS's; a Unix FAL has none.
+    decw_->setEnabled (!busy_ && (vms_ || !base_known_));
     path_->setEnabled (!busy_);
 }
 

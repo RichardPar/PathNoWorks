@@ -103,6 +103,57 @@ work, Sixel and ReGIS included, and `SET TERMINAL/INQUIRE` sees a VT340.
 There's more in [pnw-sethost](pnw-sethost.md); `Ctrl-]` `q` gets you
 out.
 
+## DECwindows programs
+
+VMS has a whole desktop's worth of DECwindows programs, and the desktop
+can put them on your screen. In a node's file window, or on a node in
+the main window, open the **DECwindows** menu and pick one:
+
+| | |
+|---|---|
+| DECterm | DEC's terminal emulator |
+| FileView | the VMS file manager |
+| Mail | DECwindows Mail |
+| Notepad, Calculator, Calendar, Cardfiler, Clock | the desk accessories |
+| Paint, Puzzle, Bookreader | the rest |
+
+<p>
+<img src="images/vms-fileview.png" alt="VMS FileView on a Linux desktop" width="48%">
+<img src="images/vms-calculator.png" alt="The DECwindows calculator" width="24%">
+<img src="images/vms-puzzle.png" alt="DECwindows Puzzle" width="24%">
+</p>
+
+The program runs on the VMS node and draws here. Behind the menu, the
+desktop:
+
+1. starts [`pnw-x11 serve`](pnw-x11.md) if it isn't running, letting that
+   node in (if you run one yourself, it uses that, and yours has to let
+   the node in);
+2. puts a little command procedure, `PNWX<program>.COM`, in your login
+   directory on the node: it sets the display to this machine and runs
+   the program;
+3. connects to it as a DECnet task, which makes VMS run it in a network
+   job under your login.
+
+The file window uses the login it already has; from the main window
+you're asked for one. The node needs DECwindows installed, and VMS must
+be using the real DECwindows transport rather than the stub some
+versions leave in place; see [pnw-x11](pnw-x11.md#if-vms-says-cant-open-display)
+if every program fails to open its display. The programs close if you
+quit the desktop, since their display goes with it.
+
+![DECterm, with a DCL prompt from the VAX](images/vms-decterm.png)
+
+What works, tried against OpenVMS VAX 6.2 with DECwindows Motif 1.2-3:
+DECterm, FileView, the Calculator, the Clock and Puzzle. DECterm gives
+you a DCL session of its own in the window; its controller and session
+are separate VMS processes, and closing the window ends them. Missing DEC fonts mean
+some labels come out in a substitute font, or not at all (the
+calculator's square root key). Paint crashes on start: it expects the
+8-bit colour displays of its day, not a modern 24-bit one. The
+procedures are left in your login directory, ready for next time; delete
+them whenever you like.
+
 ## Mail
 
 ![The mail window](images/mail.png)

@@ -126,7 +126,7 @@ private:
     QLineEdit *path_;
     QLabel    *status_;
     QAction   *up_, *refresh_, *download_, *upload_, *delete_, *rename_,
-              *mount_, *terminal_;
+              *mount_, *terminal_, *decw_;
     QString    last_dir_;               // where downloads went last
     std::vector<std::unique_ptr<QTemporaryDir>> drag_dirs_;
 };

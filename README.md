@@ -82,7 +82,7 @@ it can act as this DECnet node. Set its mode accordingly (`--mode 600` or
 
 | Tool | What it does | Guide |
 |---|---|---|
-| `pathnoworks` | The desktop: the network and your favourite nodes, a node's files (browse, drag and drop both ways, mount), terminals and mail | [desktop](docs/desktop.md) |
+| `pathnoworks` | The desktop: the network and your favourite nodes, a node's files (browse, drag and drop both ways, mount), terminals, mail, and VMS DECwindows programs on your screen | [desktop](docs/desktop.md) |
 | `pnw-ncp` | NCP: `SHOW` and `LIST` network information from any node, `LOOP NODE` | [pnw-ncp](docs/pnw-ncp.md) |
 | `pnw-dir` | List remote files | [file access](docs/file-access.md) |
 | `pnw-type` | Show a remote file | [file access](docs/file-access.md) |
@@ -311,8 +311,8 @@ as well as cppdecnet and PyDECnet:
 - mail both ways.
 
 RSX has been tried for NCP, loopback, CTERM and LAT (up to login).
-X11 over DECnet works end to end with real X programs on Linux, but has
-not met a VMS DECwindows program yet: the VAX here has no DECwindows.
+X11 over DECnet has put the DECwindows clock from OpenVMS VAX 6.2 on a
+Linux desktop.
 
 Still on the list:
 

@@ -77,6 +77,43 @@ $ CREATE/TERMINAL=DECTERM/DETACH
 `PNW` is your node's name as the VMS node knows it. If it doesn't know
 it yet, see the end of [pnw-mail](pnw-mail.md) for how to tell it.
 
+![The DECwindows clock from OpenVMS VAX 6.2, on a Linux desktop](images/vms-clock.png)
+
+That's `DECW$CLOCK` from OpenVMS VAX 6.2, running on a VAX in SIMH and
+drawing on a Linux desktop over DECnet.
+
+### If VMS says "can't open display"
+
+If every DECwindows program fails at once with `Can't Open display` (or
+`%DECW-E-CANT_OPEN_DISPL`), and pnw-x11 never sees a connection, check
+which common transport VMS is using:
+
+```
+$ @SYS$UPDATE:DECW$VERSIONS *
+```
+
+If it says `DECwindows transport ident is DECWINDOWS V5.4`, you have the
+stub VMS installs for systems without DECwindows. Every one of its entry
+points returns `%SYSTEM-E-UNSUPPORTED`, so the X library gives up before
+it tries the network. On OpenVMS VAX 6.2 the stub (`;2`, from the VMS
+saveset) outranks the real one (`;1`, from the DECwindows savesets),
+even after DECwindows is installed. Restore the real one as a newer
+version, from the VMS CD, and replace the installed copy:
+
+```
+$ BACKUP DKA400:[000000]DECW062.C/SAVE/SELECT=[SYS0.SYSLIB]DECW$TRANSPORT_COMMON.EXE;1 -
+        SYS$COMMON:[SYSLIB]DECW$TRANSPORT_COMMON.EXE/NEW_VERSION
+$ INSTALL REPLACE SYS$SHARE:DECW$TRANSPORT_COMMON.EXE
+```
+
+`DECW$VERSIONS` should then show the transport as `DW V6.2-950419`.
+It took a debugger trace through the X library to find this one, so I'm
+writing it down.
+
+A VAX with no screen of its own needs DECwindows base support (from
+`DECW$TAILOR`) and DECwindows Motif. It runs no X server; your Linux
+machine is the display.
+
 ## Messages
 
 ```
@@ -88,20 +125,20 @@ it yet, see the end of [pnw-mail](pnw-mail.md) for how to tell it.
 
 ## Tested
 
+Against OpenVMS VAX 6.2 with DECwindows Motif 1.2-3, running under SIMH:
+`xdpyinfo` from `DECW$UTILS` and `DECW$CLOCK` both opened on a Linux X.Org
+server through `pnw-x11 serve`. DEC's fonts are missing on a stock Linux
+X server, so the clock warns about its menu font and falls back to
+another; it works regardless.
+
 `ctest` runs both halves between two decnetd nodes, with a stand-in X
 server. It checks that the cookie is swapped in, that 200 KB survive the
 round trip unchanged, and that a node not on the list is turned away.
 
-On a real desktop, both halves chained through one decnetd ran real X
-programs: `connect` made `:20`, and its clients went out over DECnet and
-back in to `serve`, on to Xorg. `xdpyinfo`, `xdpyinfo -ext all` and
+On a real desktop, both halves chained through one decnetd also ran real
+X programs: `connect` made `:20`, and its clients went out over DECnet
+and back in to `serve`, on to Xorg. `xdpyinfo`, `xdpyinfo -ext all` and
 `xclock` all worked.
-
-**Not yet tried against VMS.** The VAX here doesn't have DECwindows
-installed, so no DECwindows program has opened a window through this
-yet. The protocol is plain X11 on a DECnet link, so I expect it to work.
-The likeliest snag is fonts: DECwindows programs, DECterm especially,
-ask for DEC's own fonts, which a stock Linux X server doesn't have.
 
 ## What it won't do (yet)
 

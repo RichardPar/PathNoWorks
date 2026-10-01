@@ -3,6 +3,8 @@
 #include "mainwindow.h"
 
 #include "common.h"
+#include "decwindows.h"
+#include "logindialog.h"
 #include "filewindow.h"
 #include "maildialog.h"
 
@@ -145,6 +147,22 @@ MainWindow::MainWindow (QWidget *parent) : QMainWindow (parent)
         QString n = current_node ();
         if (!n.isEmpty ()) toggle_favourite (n);
     });
+    QMenu *decw = decw_menu (this, [this] (const DecwApp &a) {
+        QString n = current_node ();
+        if (n.isEmpty ()) {
+            QMessageBox::information (this, "DECwindows", "Pick a node first.");
+            return;
+        }
+        LoginDialog d (n, "A login on " + n + " to run " + a.label
+                          + " as. It needs DECwindows installed there.", {}, this);
+        if (d.exec () != QDialog::Accepted) return;
+        status_->setText ("Starting " + a.label + " on " + n + "...");
+        decw_launch (this, n, d.login (), a, [this] (bool ok, const QString &msg) {
+            status_->setText (msg.toHtmlEscaped ());
+            if (!ok) QMessageBox::warning (this, "DECwindows", msg);
+        });
+    });
+    nodeMenu->addMenu (decw);
     nodeMenu->addAction (fav);
     nodeMenu->addSeparator ();
     nodeMenu->addAction (refresh);
@@ -182,7 +200,7 @@ MainWindow::MainWindow (QWidget *parent) : QMainWindow (parent)
     table_->setContextMenuPolicy (Qt::ActionsContextMenu);
     auto *sep = new QAction (this);
     sep->setSeparator (true);
-    table_->addActions ({ files, term, mail, sep, fav });
+    table_->addActions ({ files, term, mail, decw->menuAction (), sep, fav });
     v->addWidget (table_, 1);
     setCentralWidget (central);
 

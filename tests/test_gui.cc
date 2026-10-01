@@ -12,11 +12,13 @@
 // directory to save pictures of the windows in.
 
 #include "common.h"
+#include "decwindows.h"
 #include "filewindow.h"
 #include "maildialog.h"
 #include "mainwindow.h"
 
 #include <QDir>
+#include <QProcess>
 #include <QFile>
 #include <QLineEdit>
 #include <QPlainTextEdit>
@@ -252,6 +254,73 @@ private slots:
         QVERIFY (done (*w, spy));
         QVERIFY (!w->names ().contains ("PNWGUI.TXT"));
         delete w;
+    }
+
+    // A DECwindows program on the VMS node, its window on this X display:
+    // what the DECwindows menus do.  Needs PNW_TEST_VMS and a real DISPLAY.
+    void vms_decwindows ()
+    {
+        QString target = env ("PNW_TEST_VMS");
+        if (target.isEmpty () || env ("DISPLAY").isEmpty ()
+            || env ("QT_QPA_PLATFORM") == "offscreen")
+            QSKIP ("needs PNW_TEST_VMS and a real X display");
+        QRegularExpression re ("^([^\"]+)\"(\\S+) (\\S+)\"$");
+        auto m = re.match (target);
+        QVERIFY (m.hasMatch ());
+        gui::Login login { m.captured (2), m.captured (3), {}, false };
+        // Calculator unless PNW_TEST_DECW_APP names another.
+        QString want = env ("PNW_TEST_DECW_APP").isEmpty () ? "Calculator" : env ("PNW_TEST_DECW_APP");
+        QString image = want == "DECterm" ? "DECW$TERMINAL"
+                      : want == "FileView" ? "VUE$MASTER"
+                      : "DECW$" + want.toUpper ().left (want == "Calculator" ? 4 : 99);
+        const gui::DecwApp *calc = nullptr;
+        for (const gui::DecwApp &a : gui::decw_apps ())
+            if (a.label == want) calc = &a;
+        QVERIFY (calc);
+
+        bool done = false, ok = false;
+        QString msg;
+        QObject ctx;
+        gui::decw_launch (&ctx, m.captured (1), login, *calc, [&] (bool good, const QString &text) {
+            done = true; ok = good; msg = text;
+        });
+        QTRY_VERIFY_WITH_TIMEOUT (done, 60000);
+        QVERIFY2 (ok, qPrintable (msg));
+
+        // Its window, on this display.
+        auto has_window = [image] {
+            QProcess p;
+            p.start ("xwininfo", { "-root", "-tree" });
+            p.waitForFinished (5000);
+            return QString::fromLocal8Bit (p.readAllStandardOutput ()).contains (image);
+        };
+        QTRY_VERIFY_WITH_TIMEOUT (has_window (), 60000);
+
+        // Pictures of the more interesting ones, if asked.
+        QString shots = env ("PNW_TEST_SHOTS");
+        if (shots.isEmpty ()) return;
+        for (const gui::DecwApp &a : gui::decw_apps ()) {
+            if (!QStringList { "DECterm", "FileView", "Paint", "Puzzle" }.contains (a.label)) continue;
+            bool d = false;
+            gui::decw_launch (&ctx, m.captured (1), login, a, [&] (bool, const QString &) { d = true; });
+            QTRY_VERIFY_WITH_TIMEOUT (d, 60000);
+        }
+        QTest::qWait (45000);
+        QProcess tree;
+        tree.start ("xwininfo", { "-root", "-tree" });
+        tree.waitForFinished (5000);
+        QFile list (shots + "/windows.txt");
+        if (list.open (QIODevice::WriteOnly)) list.write (tree.readAllStandardOutput ());
+        for (const QString &line : QString::fromLocal8Bit (QFile (shots + "/windows.txt").exists ()
+                 ? [&] { QFile f (shots + "/windows.txt"); f.open (QIODevice::ReadOnly); return f.readAll (); } ()
+                 : QByteArray ()).split ('\n')) {
+            // Top-level application windows of a useful size.
+            QRegularExpression w ("^\\s+(0x[0-9a-f]+) \"([^\"]+)\": \\(\"[^\"]*\" \"(DECW\\$[A-Z_]+|VUE\\$[A-Z_]+)\"\\)\\s+(\\d+)x(\\d+)");
+            auto wm = w.match (line);
+            if (!wm.hasMatch () || wm.captured (4).toInt () < 60 || wm.captured (5).toInt () < 40) continue;
+            QString name = wm.captured (3).toLower ().replace ('$', '-') + "-" + wm.captured (1);
+            QProcess::execute ("sh", { "-c", "xwd -silent -id " + wm.captured (1) + " > '" + shots + "/" + name + ".xwd'" });
+        }
     }
 };
 

@@ -11,6 +11,7 @@ set (CMAKE_AUTOMOC ON)
 # Everything but main, so the tests can drive the windows.
 add_library (pnwgui STATIC
     src/common.cc
+    src/decwindows.cc
     src/filewindow.cc
     src/logindialog.cc
     src/maildialog.cc

@@ -63,10 +63,28 @@ bool open_terminal (const QString &title, const QStringList &command,
         if (error) *error = "xterm is not installed";
         return false;
     }
+    // Copy and paste as the rest of the desktop does it.  xterm on its own
+    // only sets the PRIMARY selection (middle button), which Ctrl+V in
+    // other programs never sees.  So: selecting sets the CLIPBOARD too,
+    // Ctrl+Shift+C copies, Ctrl+Shift+V and Shift+Insert paste the
+    // clipboard, and the middle button still pastes the selection.
+    // Ctrl+Shift+C is taken here, so it never reaches the node as Ctrl+C.
+    static const char *const clipboard =
+        "XTerm*VT100.translations: #override \\n"
+        " Ctrl Shift <Key>C: copy-selection(CLIPBOARD) \\n"
+        " Ctrl Shift <Key>V: insert-selection(CLIPBOARD) \\n"
+        " Shift <Key>Insert: insert-selection(CLIPBOARD, PRIMARY) \\n"
+        " <Btn1Up>: select-end(PRIMARY, CLIPBOARD, CUT_BUFFER0) \\n"
+        " <Btn3Up>: select-end(PRIMARY, CLIPBOARD, CUT_BUFFER0)";
     QStringList args {
         "-ti", "vt340",
         "-xrm", "XTerm*decTerminalID: vt340",
         "-xrm", "XTerm*numColorRegisters: 256",
+        "-xrm", clipboard,
+        // A readable size: xterm's own bitmap font makes 80x24 a postage
+        // stamp.  Still 80x24, which full-screen VMS programs expect; the
+        // window grows with the font, and resizing tells VMS the new size.
+        "-fa", "Monospace", "-fs", "12",
         "-geometry", "80x24",
         "-T", title,
         "-e" };
