@@ -34,7 +34,7 @@ And here's how the pieces fit together:
 │                                                                        │
 │   pathnoworks        pnw-ncp      pnw-dir  pnw-type  pnw-copy          │
 │   (the Qt desktop)   pnw-sethost  pnw-delete  pnw-rename               │
-│                      pnw-mail     pnw-mop     pnw-fs (FUSE)            │
+│                      pnw-mail     pnw-mop     pnw-fs (FUSE)  pnw-x11   │
 │          │                │                                            │
 │          └──────┬─────────┘                                            │
 │                 │  the pnwclient library (+ pnwdap, pnwcterm, ...)     │
@@ -71,6 +71,7 @@ and decnetd speaks MOP itself on its Ethernet circuits.
 | `pnw-sethost`, the desktop's Terminal | CTERM (object 42) | CTERM |
 | `pnw-mail`, the desktop's Mail | MAIL (object 27); `listen` takes object 27 here | Mail-11 |
 | `pnw-mop` | stations on decnetd's `--mop` Ethernet circuit | MOP |
+| `pnw-x11` | takes `X$X0` here for VMS's X clients; or connects to a node's `X$X0` | X11 |
 | `pnw-lat` | nothing: LAT hosts directly, through `pnw-latsock` | LAT |
 
 The socket is the only door, so it's also the only lock: whoever can open
@@ -93,6 +94,7 @@ it can act as this DECnet node. Set its mode accordingly (`--mode 600` or
 | `pnw-lat` | Connect to a LAT service on the LAN, as a terminal server does | [pnw-lat](docs/pnw-lat.md) |
 | `pnw-mail` | Send DECnet mail to `NODE::USER`, and take in mail for this node (Mail-11) | [pnw-mail](docs/pnw-mail.md) |
 | `pnw-mop` | MOP: stations on the LAN, their system IDs and counters, loop tests | [pnw-mop](docs/pnw-mop.md) |
+| `pnw-x11` | X11 over DECnet: VMS DECwindows programs on your screen, as eXcursion did | [pnw-x11](docs/pnw-x11.md) |
 
 Want other nodes to reach files on *this* machine? cppdecnet has `dnfal`,
 a FAL with its own access control. See "File access" in the cppdecnet
@@ -128,6 +130,8 @@ pnw-mail listen                                 # mail for this node -> ~/Mail/d
 
 pnw-mop list                                    # stations on the LAN (MOP)
 pnw-mop loop BAJI -n 5
+
+pnw-x11 serve --allow VMSNOD &                  # VMSNOD's DECwindows programs on this screen
 ```
 
 A word of warning you'll see again: **quote remote file specifications.**
@@ -253,6 +257,7 @@ on your machine and drive the tools against them:
 - the FUSE mount;
 - mail from one node to another;
 - MOP;
+- X11 over DECnet, with a stand-in X server;
 - and the desktop's windows, driven offscreen.
 
 The PyDECnet tests are skipped if PyDECnet isn't at
@@ -306,6 +311,8 @@ as well as cppdecnet and PyDECnet:
 - mail both ways.
 
 RSX has been tried for NCP, loopback, CTERM and LAT (up to login).
+X11 over DECnet works end to end with real X programs on Linux, but has
+not met a VMS DECwindows program yet: the VAX here has no DECwindows.
 
 Still on the list:
 
@@ -332,6 +339,7 @@ tools/pnw-sethost/ CTERM remote login
 tools/pnw-lat/    LAT terminal, and pnw-latsock, its privileged helper
 tools/pnw-mail/   DECnet mail
 tools/pnw-mop/    MOP: system IDs, counters, loop
+tools/pnw-x11/    X11 over DECnet, both ways
 gui/              pathnoworks, the Qt desktop
 samples/          a decnetd configuration and dnfal users file to start from
 tests/            unit tests, and integration tests against real nodes

@@ -76,6 +76,7 @@ add_subdirectory (tools/pnw-sethost)
 add_subdirectory (tools/pnw-lat)
 add_subdirectory (tools/pnw-mail)
 add_subdirectory (tools/pnw-mop)
+add_subdirectory (tools/pnw-x11)
 add_subdirectory (gui)
 
 enable_testing ()

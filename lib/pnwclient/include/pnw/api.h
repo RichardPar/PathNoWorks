@@ -87,6 +87,9 @@ public:
 
     bool open () const noexcept { return open_; }
 
+    // decnetd's handle for the link: what its messages carry.
+    std::int64_t handle () const noexcept { return handle_; }
+
     // Why the link closed, once it has.
     unsigned reason () const noexcept { return reason_; }
 
@@ -159,6 +162,12 @@ public:
 
     // Turn one down.
     void reject (const Incoming &in, ByteView data = {});
+
+    // For a program with many links in one loop: the next message waiting,
+    // whatever it is for, or nothing on timeout.  It stays waiting: take it
+    // with the Link::recv or incoming it belongs to, or drop it.
+    const json::Object *peek (Timeout t);
+    void drop ();
 
 private:
     friend class Link;

@@ -221,6 +221,21 @@ std::int64_t Api::bind (std::uint8_t number, const std::string &name)
     return request (std::move (req)).num ("handle");
 }
 
+const json::Object *Api::peek (Timeout t)
+{
+    if (queued_.empty ()) {
+        auto m = read (t);
+        if (!m) return nullptr;
+        queued_.push_back (std::move (*m));
+    }
+    return &queued_.front ();
+}
+
+void Api::drop ()
+{
+    if (!queued_.empty ()) queued_.pop_front ();
+}
+
 std::optional<Incoming> Api::incoming (Timeout t)
 {
     auto is_connect = [] (const json::Object &m) {

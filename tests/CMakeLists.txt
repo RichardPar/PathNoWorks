@@ -77,3 +77,12 @@ if (TARGET pnwgui)
                       ${CPPDECNET_BIN}/dnfal $<TARGET_FILE_DIR:pnw-dir>)
     set_tests_properties (gui_smoke PROPERTIES TIMEOUT 180)
 endif ()
+
+# X11 over DECnet, both directions, with a stand-in X server.
+find_program (PYTHON3 python3)
+if (PYTHON3)
+    add_test (NAME x11_smoke
+              COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/x11_smoke.sh
+                      $<TARGET_FILE:pnw-x11> ${CPPDECNET_BIN}/decnetd)
+    set_tests_properties (x11_smoke PROPERTIES TIMEOUT 120)
+endif ()
