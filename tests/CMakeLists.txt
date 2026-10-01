@@ -58,3 +58,9 @@ add_test (NAME mail_smoke
           COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/mail_smoke.sh
                   $<TARGET_FILE:pnw-mail> ${CPPDECNET_BIN}/decnetd)
 set_tests_properties (mail_smoke PROPERTIES TIMEOUT 180)
+
+# MOP through decnetd's API, between two stations on a UDP-carried LAN.
+add_test (NAME mop_smoke
+          COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/mop_smoke.sh
+                  $<TARGET_FILE:pnw-mop> ${CPPDECNET_BIN}/decnetd)
+set_tests_properties (mop_smoke PROPERTIES TIMEOUT 120)

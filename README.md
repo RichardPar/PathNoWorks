@@ -10,7 +10,7 @@ privileges and never touch the network directly. `pnw-lat` is the
 exception: LAT is not DECnet, and it speaks it on the LAN itself.
 
 ```
-pnw-ncp  pnw-sethost  pnw-mail  pnw-dir  pnw-type  pnw-copy  pnw-delete  pnw-rename  pnw-fs
+pnw-ncp  pnw-sethost  pnw-mail  pnw-mop  pnw-dir  pnw-type  pnw-copy  pnw-delete  pnw-rename  pnw-fs
         |  JSON over a Unix socket (PyDECnet's API)          pnw-lat
         |                                                    |  LAT, straight on the LAN
 decnetd (cppdecnet): routing, NSP, session control, MOP, NICE, FAL
@@ -32,6 +32,7 @@ DECnet: VMS, RSX, PyDECnet, HECnet
 | `pnw-sethost` | Log in to a node, as `SET HOST` does (CTERM); VT300/VT340 and Sixel through your terminal | [pnw-sethost](docs/pnw-sethost.md) |
 | `pnw-lat` | Connect to a LAT service on the LAN, as a terminal server does | [pnw-lat](docs/pnw-lat.md) |
 | `pnw-mail` | Send DECnet mail to `NODE::USER`, and take in mail for this node (Mail-11) | [pnw-mail](docs/pnw-mail.md) |
+| `pnw-mop` | MOP: stations on the LAN, their system IDs and counters, loop tests | [pnw-mop](docs/pnw-mop.md) |
 
 To let other nodes reach files on this machine, cppdecnet has `dnfal`, a
 FAL with its own access control; see "File access" in the cppdecnet
@@ -64,6 +65,9 @@ pnw-lat BAJI
 
 echo Hello | pnw-mail send -s Greetings VMSNOD::SYSTEM
 pnw-mail listen                                 # mail for this node -> ~/Mail/decnet
+
+pnw-mop list                                    # stations on the LAN (MOP)
+pnw-mop loop BAJI -n 5
 ```
 
 Quote remote file specifications: the shell treats `[ ] * ; " $`
@@ -83,8 +87,8 @@ ctest --test-dir build
 
 The tests start real decnetd nodes on this machine and drive the tools
 against them: NCP, file access against both `dnfal` and PyDECnet's
-`fal.py`, access control, the FUSE mount, and mail from one node to
-another. The PyDECnet tests are skipped if PyDECnet is not at
+`fal.py`, access control, the FUSE mount, mail from one node to
+another, and MOP. The PyDECnet tests are skipped if PyDECnet is not at
 `../Decnet/pydecnet/pydecnet` (`-DPYDECNET_DIR=...`), and the mount test
 without FUSE.
 
@@ -99,7 +103,8 @@ both directions, rename, delete, the FUSE mount, CTERM logins and mail
 both ways. RSX has been tried for NCP, loopback, CTERM and LAT (up to
 login).
 
-Planned: Windows and a Qt GUI.
+Planned: the MOP console carrier (a remote console on a DECserver or
+VAX; `pnw-mop` has everything else), then Windows and a Qt GUI.
 
 ## Layout
 
@@ -118,5 +123,6 @@ tools/pnw-fs/     FUSE mount
 tools/pnw-sethost/ CTERM remote login
 tools/pnw-lat/    LAT terminal, and pnw-latsock, its privileged helper
 tools/pnw-mail/   DECnet mail
+tools/pnw-mop/    MOP: system IDs, counters, loop
 tests/            unit tests, and integration tests against real nodes
 ```
