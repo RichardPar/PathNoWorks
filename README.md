@@ -215,8 +215,23 @@ sudo apt install build-essential cmake pkg-config libcrypt-dev libpcap-dev \
 
 Leave out an optional piece and you only lose what depends on it. CMake
 says what it skipped, and everything else still builds. One catch: if you
-add `libpcap-dev` after building cppdecnet, run `make features` in
-cppdecnet so it notices.
+add `libpcap-dev` after building cppdecnet, run `make clean` in cppdecnet,
+since it won't otherwise rebuild what's already built with Ethernet
+support.
+
+### The easy way
+
+```sh
+./build.sh            # check, offer to install and clone what's missing, build
+./build.sh --test     # ...and run the tests
+```
+
+`build.sh` checks for everything above. It offers to install whatever's
+missing with apt, dnf or pacman, and to clone cppdecnet (and, if you like,
+PyDECnet) into the places described below. Then it builds. It asks before
+doing anything to your system; `--yes` says yes to everything, `--no`
+just checks and builds with what's there. `./build.sh --help` has the
+rest. If you'd rather do it by hand, read on.
 
 ### Where things go
 
@@ -224,12 +239,13 @@ PathNoWorks needs cppdecnet, which lives in its own repository at
 [github.com/RichardPar/cppdecnet](https://github.com/RichardPar/cppdecnet).
 PyDECnet, Paul Koning's DECnet in Python, is only needed for some of the
 tests; it's at [github.com/pkoning2/pydecnet](https://github.com/pkoning2/pydecnet).
-Clone them side by side and everything finds everything else:
+Clone them side by side and everything finds everything else. For now,
+PathNoWorks needs cppdecnet's `PathNoWorksAPI` branch, not `main`:
 
 ```sh
 mkdir -p ~/Source/Decnet && cd ~/Source
 git clone https://github.com/RichardPar/PathNoWorks.git
-git clone https://github.com/RichardPar/cppdecnet.git Decnet/cppdecnet
+git clone -b PathNoWorksAPI https://github.com/RichardPar/cppdecnet.git Decnet/cppdecnet
 git clone https://github.com/pkoning2/pydecnet.git    Decnet/pydecnet   # optional
 ```
 

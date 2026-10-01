@@ -12,10 +12,11 @@ after an evening of reading.
 
 PathNoWorks expects cppdecnet to live next door, at `../Decnet/cppdecnet`.
 It has its own repository, on
-[GitHub](https://github.com/RichardPar/cppdecnet):
+[GitHub](https://github.com/RichardPar/cppdecnet); PathNoWorks needs its
+`PathNoWorksAPI` branch for now:
 
 ```sh
-git clone https://github.com/RichardPar/cppdecnet.git ../Decnet/cppdecnet
+git clone -b PathNoWorksAPI https://github.com/RichardPar/cppdecnet.git ../Decnet/cppdecnet
 ```
 
 You don't need to build it yourself; CMake does that.
