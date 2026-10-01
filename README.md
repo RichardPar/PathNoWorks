@@ -82,7 +82,7 @@ it can act as this DECnet node. Set its mode accordingly (`--mode 600` or
 
 | Tool | What it does | Guide |
 |---|---|---|
-| `pathnoworks` | The desktop: the network, a node's files (browse, copy both ways, mount), terminals and mail | [desktop](docs/desktop.md) |
+| `pathnoworks` | The desktop: the network and your favourite nodes, a node's files (browse, drag and drop both ways, mount), terminals and mail | [desktop](docs/desktop.md) |
 | `pnw-ncp` | NCP: `SHOW` and `LIST` network information from any node, `LOOP NODE` | [pnw-ncp](docs/pnw-ncp.md) |
 | `pnw-dir` | List remote files | [file access](docs/file-access.md) |
 | `pnw-type` | Show a remote file | [file access](docs/file-access.md) |
@@ -318,7 +318,7 @@ Still on the list:
 
 - the MOP console carrier (a remote console on a DECserver or VAX;
   `pnw-mop` has everything else);
-- in the desktop: dragging files out, LAT and MOP.
+- in the desktop: LAT and MOP.
 
 ## Finding your way around the source
 

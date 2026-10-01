@@ -33,6 +33,22 @@ asks the router instead, just as you'd type
 `TELL router SHOW KNOWN NODES`, and says so in the status bar. Any names
 the router doesn't know are filled in from this node's own list.
 
+### Favourites
+
+The nodes you actually use get lost among a thousand others, so star
+them. Select a node and press **Ctrl+D** (or right-click it, or use
+*Node → Favourite*). Favourites:
+
+- get a star, and stay at the top of the list however it's sorted;
+- show up even with *Reachable only* ticked, and even if decnetd has
+  never heard of them, which is handy for a node that's switched off
+  today;
+- have their own **Favourites** menu, with Files, Terminal and Mail for
+  each, and *Add a node...* for one that isn't in the list at all.
+
+Tick *Favourites only* to see nothing else. They're remembered between
+runs.
+
 Double-click a node to see its files. **Terminal** logs in to it, and
 **Mail** writes to someone on it. Right-click a node and you get the same
 actions. *PathNoWorks → Settings* sets decnetd's API socket; by default
@@ -52,9 +68,15 @@ A node's files open in a window of their own:
 - **Looking at a file.** Double-click it. Text shows up in a viewer;
   binary files just say so.
 - **Copying.** **Copy here** copies the selected files to a local folder.
-  **Copy there** copies local files to the directory shown, and so does
-  dropping files on the window from your file manager. Text and binary
-  are told apart the same way `pnw-copy` does it.
+  **Copy there** copies local files to the directory shown. Text and
+  binary are told apart the same way `pnw-copy` does it.
+- **Drag and drop.** Drop files from your file manager onto the window
+  and they go to the directory shown. Drop them on a directory's row and
+  they go into that directory. Drag files *out* of the window, to the
+  desktop, a file manager or an editor, and they're fetched first (with
+  a progress bar if it takes a moment), then handed over as ordinary
+  local files. That also means you can drag from one node's window to
+  another's, and the files go node to node by way of your machine.
 - **Rename** (F2) and **Delete** (Del) act on the selected files.
 - **Mount** mounts the directory shown at `~/DECnet/NODE` with `pnw-fs`,
   read and write, and opens it in your file manager: your network drive,
@@ -118,7 +140,10 @@ QT_QPA_PLATFORM=offscreen PNW_TEST_SOCKET=/tmp/decnetapi.sock \
 - **Mount puts the login on pnw-fs's command line,** where `ps` shows it
   to other local users for as long as it's mounted. On a shared machine,
   use proxy access or a node's default account instead.
-- **You can't drag files out of the window yet.** Use Copy here.
-- Copy here and Delete work on files only, not whole directories.
+- Files dragged out are fetched whole before the drag starts, so
+  dragging a big file takes as long as copying it. The copies are kept in
+  a temporary folder until the window closes.
+- Copy here, Delete and dragging work on files only, not whole
+  directories.
 - There are no LAT terminals or MOP in the desktop yet; `pnw-lat` and
   `pnw-mop` are waiting on the command line.

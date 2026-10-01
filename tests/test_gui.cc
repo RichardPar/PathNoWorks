@@ -21,7 +21,9 @@
 #include <QLineEdit>
 #include <QPlainTextEdit>
 #include <QRegularExpression>
+#include <QSettings>
 #include <QSignalSpy>
+#include <QTableView>
 #include <QTemporaryDir>
 #include <QTest>
 
@@ -54,6 +56,10 @@ private slots:
     {
         QVERIFY2 (!env ("PNW_TEST_SOCKET").isEmpty (), "run this from gui_smoke.sh");
         gui::override_api_socket (env ("PNW_TEST_SOCKET"));
+        // Settings of our own, so favourites tried here are not yours.
+        QCoreApplication::setOrganizationName ("PathNoWorksTest");
+        QCoreApplication::setApplicationName ("test_gui");
+        QSettings ().remove ("nodes/favourites");
     }
 
     void the_network ()
@@ -65,6 +71,42 @@ private slots:
         QCOMPARE (w.system (), QString ("NODEB"));
         // Both nodes, reachable.
         QCOMPARE (w.visible_nodes (), 2);
+    }
+
+    void favourites ()
+    {
+        gui::MainWindow w;
+        QSignalSpy spy (&w, &gui::MainWindow::refreshed);
+        QVERIFY (spy.wait (20000));
+        QCOMPARE (w.visible_nodes (), 2);
+        auto *table = w.findChild<QTableView *> ();
+        QVERIFY (table);
+        auto first = [table] { return table->model ()->index (0, 0).data ().toString (); };
+        QCOMPARE (first (), QString ("NODEA"));     // by address
+
+        // A favourite comes first, whatever the sort.
+        w.toggle_favourite ("nodeb");
+        QVERIFY (w.is_favourite ("NODEB"));
+        QCOMPARE (first (), QString ("NODEB"));
+        table->sortByColumn (1, Qt::DescendingOrder);
+        QCOMPARE (first (), QString ("NODEB"));
+        table->sortByColumn (1, Qt::AscendingOrder);
+
+        // One the node list does not have still shows, reachable only or not.
+        w.toggle_favourite ("NOSUCH");
+        QCOMPARE (w.visible_nodes (), 3);
+
+        // Kept for next time.
+        gui::MainWindow again;
+        QSignalSpy spy2 (&again, &gui::MainWindow::refreshed);
+        QVERIFY (spy2.wait (20000));
+        QCOMPARE (again.favourites (), (QStringList { "NODEB", "NOSUCH" }));
+        QCOMPARE (again.visible_nodes (), 3);
+
+        again.toggle_favourite ("NOSUCH");
+        QCOMPARE (again.visible_nodes (), 2);
+        QCOMPARE (QSettings ().value ("nodes/favourites").toStringList (),
+                  QStringList { "NODEB" });
     }
 
     void files ()
@@ -121,6 +163,17 @@ private slots:
         w->view ("hello.txt");
         QVERIFY (done (*w, spy));
 
+        // Dragging out: the files are fetched first, as local files.
+        QList<QUrl> urls = w->fetch_for_drag ({ "hello.txt" });
+        QCOMPARE (urls.size (), 1);
+        QVERIFY (spy.isEmpty () || spy.takeFirst ().at (0).toBool ());
+        QCOMPARE (read_all (urls[0].toLocalFile ()), read_all (root + "/hello.txt"));
+
+        // Dropping on a directory row: into that directory.
+        w->upload ({ t.fileName () }, "sub");
+        QVERIFY (done (*w, spy));
+        QCOMPARE (read_all (root + "/sub/up.txt"), QByteArray ("uploaded\nfrom the desktop\n"));
+
         // A directory that is not there: an error, said so.
         w->go_to ("nosuch/");
         QVERIFY (!done (*w, spy));
@@ -168,6 +221,9 @@ private slots:
         QString shots = env ("PNW_TEST_SHOTS");
         if (!shots.isEmpty ()) {
             net.resize (760, 420);
+            // A couple of favourites, as someone would have.
+            net.toggle_favourite ("VAXXY");
+            net.toggle_favourite ("BAJI");
             net.show ();
             // A fresh listing, so the status bar shows it.
             w->refresh ();
@@ -175,6 +231,8 @@ private slots:
             w->show ();
             QTest::qWait (300);
             net.grab ().save (shots + "/network.png");
+            net.toggle_favourite ("VAXXY");
+            net.toggle_favourite ("BAJI");
             w->grab ().save (shots + "/files.png");
 
             // The mail window, filled in as someone might.

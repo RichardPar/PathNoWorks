@@ -10,7 +10,9 @@
 #include <QApplication>
 #include <QDesktopServices>
 #include <QDir>
+#include <QDrag>
 #include <QDragEnterEvent>
+#include <QEventLoop>
 #include <QFile>
 #include <QFileDialog>
 #include <QFileInfo>
@@ -23,6 +25,7 @@
 #include <QMimeData>
 #include <QPlainTextEdit>
 #include <QProcess>
+#include <QProgressDialog>
 #include <QStandardPaths>
 #include <QStatusBar>
 #include <QToolBar>
@@ -76,29 +79,52 @@ QString size_text (const pnw::DirEntry &e)
 FileList::FileList (QWidget *parent) : QTreeWidget (parent)
 {
     setAcceptDrops (true);
+    setDragEnabled (true);
+    setDragDropMode (QAbstractItemView::DragDrop);
+    setDefaultDropAction (Qt::CopyAction);
     setDropIndicatorShown (true);
 }
 
 void FileList::dragEnterEvent (QDragEnterEvent *e)
 {
-    if (e->mimeData ()->hasUrls ()) e->acceptProposedAction ();
+    // Our own files dragged back onto us would only be copied over
+    // themselves.
+    if (e->source () != this && e->mimeData ()->hasUrls ()) {
+        e->setDropAction (Qt::CopyAction);
+        e->accept ();
+    }
 }
 
 void FileList::dragMoveEvent (QDragMoveEvent *e)
 {
-    if (e->mimeData ()->hasUrls ()) e->acceptProposedAction ();
+    if (e->source () != this && e->mimeData ()->hasUrls ()) {
+        e->setDropAction (Qt::CopyAction);
+        e->accept ();
+    }
 }
 
 void FileList::dropEvent (QDropEvent *e)
 {
+    if (e->source () == this) return;
     QStringList paths;
     for (const QUrl &u : e->mimeData ()->urls ())
         if (u.isLocalFile () && QFileInfo (u.toLocalFile ()).isFile ())
             paths << u.toLocalFile ();
-    if (!paths.isEmpty ()) {
-        e->acceptProposedAction ();
-        emit files_dropped (paths);
-    }
+    if (paths.isEmpty ()) return;
+    // Onto a directory row: into that directory.
+    QString into;
+    if (QTreeWidgetItem *it = itemAt (e->position ().toPoint ());
+        it && it->data (0, Qt::UserRole + 1).toBool ())
+        into = it->data (0, Qt::UserRole).toString ();
+    e->setDropAction (Qt::CopyAction);
+    e->accept ();
+    emit files_dropped (paths, into);
+}
+
+void FileList::startDrag (Qt::DropActions)
+{
+    // The window fetches the files and starts the drag itself.
+    emit drag_wanted ();
 }
 
 // --------------------------------------------------------------- FileWindow
@@ -170,6 +196,7 @@ FileWindow::FileWindow (const QString &node, const Login &login,
     });
     connect (list_, &QTreeWidget::itemSelectionChanged, this, &FileWindow::update_actions);
     connect (list_, &FileList::files_dropped, this, &FileWindow::upload);
+    connect (list_, &FileList::drag_wanted, this, &FileWindow::start_drag);
 
     status_ = new QLabel;
     statusBar ()->addWidget (status_, 1);
@@ -207,9 +234,10 @@ std::string FileWindow::listing_spec () const
     return pnw::RemoteTree (ss (base_)).listing (join_local (cur_));
 }
 
-std::string FileWindow::file_spec (const QString &name) const
+std::string FileWindow::file_spec (const QString &name, const QString &subdir) const
 {
     QStringList p = cur_;
+    if (!subdir.isEmpty ()) p << subdir;
     p << name;
     return pnw::RemoteTree (ss (base_)).spec (join_local (p));
 }
@@ -521,12 +549,13 @@ void FileWindow::download (const QStringList &names, const QString &local_dir)
     }, false);
 }
 
-void FileWindow::upload (const QStringList &local_paths)
+void FileWindow::upload (const QStringList &local_paths, const QString &into)
 {
     std::vector<std::pair<std::string, std::string>> files;
     for (const QString &p : local_paths)
-        files.emplace_back (ss (p), file_spec (QFileInfo (p).fileName ()));
-    run (QString ("Copying %1 file(s) to %2").arg (files.size ()).arg (node_),
+        files.emplace_back (ss (p), file_spec (QFileInfo (p).fileName (), into));
+    run (QString ("Copying %1 file(s) to %2").arg (files.size ())
+             .arg (into.isEmpty () ? node_ : node_ + " " + into + "/"),
          [files] (pnw::Api &, pnw::DapSession &s, Reply &r) {
         std::uint64_t total = 0;
         for (const auto &[local, remote] : files) {
@@ -611,6 +640,56 @@ void FileWindow::ask_rename ()
     QString to = QInputDialog::getText (this, "Rename", "New name for " + names[0] + ":",
                                         QLineEdit::Normal, names[0], &ok).trimmed ();
     if (ok && !to.isEmpty () && to != names[0]) rename_file (names[0], to);
+}
+
+// ----------------------------------------------------------------- dragging
+
+QList<QUrl> FileWindow::fetch_for_drag (const QStringList &names)
+{
+    if (busy_ || names.isEmpty ()) return {};
+    auto dir = std::make_unique<QTemporaryDir> (
+        QDir::temp ().filePath ("pathnoworks-drag-XXXXXX"));
+    if (!dir->isValid ()) return {};
+
+    // Wait for the copy, with the window still drawing itself, and a
+    // progress dialog if it takes more than a moment.
+    QEventLoop loop;
+    bool ok = false;
+    auto c = connect (this, &FileWindow::finished, &loop, [&] (bool good, const QString &) {
+        ok = good;
+        loop.quit ();
+    });
+    QProgressDialog progress (QString ("Fetching %1 file(s) from %2...")
+                                  .arg (names.size ()).arg (node_),
+                              QString (), 0, 0, this);
+    progress.setWindowModality (Qt::WindowModal);
+    progress.setMinimumDuration (400);
+    progress.setValue (0);
+    QString keep = last_dir_;
+    download (names, dir->path ());
+    last_dir_ = keep;
+    if (busy_) loop.exec ();
+    disconnect (c);
+    if (!ok) return {};
+
+    QList<QUrl> urls;
+    for (const QString &n : names) urls << QUrl::fromLocalFile (dir->filePath (n));
+    drag_dirs_.push_back (std::move (dir));
+    return urls;
+}
+
+void FileWindow::start_drag ()
+{
+    QStringList names = selected (true);
+    QList<QUrl> urls = fetch_for_drag (names);
+    if (urls.isEmpty ()) return;
+    auto *mime = new QMimeData;
+    mime->setUrls (urls);
+    auto *drag = new QDrag (list_);
+    drag->setMimeData (mime);
+    drag->setPixmap (QIcon::fromTheme ("text-x-generic").pixmap (32));
+    drag->exec (Qt::CopyAction);
+    status_->setText (QString ("Dragged %1 file(s) out").arg (names.size ()));
 }
 
 // ----------------------------------------------------------------- mounting

@@ -17,7 +17,9 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QMenuBar>
+#include <QMenu>
 #include <QMessageBox>
+#include <QSettings>
 #include <QSortFilterProxyModel>
 #include <QStandardItemModel>
 #include <QStatusBar>
@@ -35,6 +37,12 @@ enum Column { c_name, c_address, c_state, c_hops, c_cost, c_circuit, c_count };
 
 constexpr int SORT_ROLE = Qt::UserRole;
 constexpr int REACHABLE_ROLE = Qt::UserRole + 1;
+constexpr int FAV_ROLE = Qt::UserRole + 2;
+
+QIcon star_icon ()
+{
+    return QIcon::fromTheme ("starred", QIcon::fromTheme ("emblem-favorite"));
+}
 
 // "29.157" as a number that sorts: area * 1024 + node.
 int address_key (const QString &a)
@@ -46,25 +54,39 @@ int address_key (const QString &a)
 
 }   // namespace
 
-// Text from the search box in the name or address, and only reachable
-// nodes if asked.
+// Text from the search box in the name or address; only reachable nodes,
+// or only favourites, if asked.  Favourites always pass the reachable test,
+// and always sort first.
 class NodeFilter : public QSortFilterProxyModel {
 public:
     using QSortFilterProxyModel::QSortFilterProxyModel;
 
-    void set (const QString &text, bool reachable_only)
+    void set (const QString &text, bool reachable_only, bool favourites_only)
     {
         text_ = text.trimmed ();
         reachable_only_ = reachable_only;
-        invalidateFilter ();
+        favourites_only_ = favourites_only;
+        invalidate ();
     }
 
 protected:
+    bool lessThan (const QModelIndex &a, const QModelIndex &b) const override
+    {
+        bool fa = a.siblingAtColumn (c_name).data (FAV_ROLE).toBool ();
+        bool fb = b.siblingAtColumn (c_name).data (FAV_ROLE).toBool ();
+        // Qt reverses the comparison for a descending sort; undo that for
+        // favourites, so they stay on top either way.
+        if (fa != fb) return sortOrder () == Qt::AscendingOrder ? fa : fb;
+        return QSortFilterProxyModel::lessThan (a, b);
+    }
+
     bool filterAcceptsRow (int row, const QModelIndex &parent) const override
     {
         auto *m = sourceModel ();
         QModelIndex name = m->index (row, c_name, parent);
-        if (reachable_only_ && !name.data (REACHABLE_ROLE).toBool ()) return false;
+        bool fav = name.data (FAV_ROLE).toBool ();
+        if (favourites_only_ && !fav) return false;
+        if (reachable_only_ && !fav && !name.data (REACHABLE_ROLE).toBool ()) return false;
         if (text_.isEmpty ()) return true;
         return name.data ().toString ().contains (text_, Qt::CaseInsensitive)
             || m->index (row, c_address, parent).data ().toString ().startsWith (text_);
@@ -73,6 +95,7 @@ protected:
 private:
     QString text_;
     bool    reachable_only_ = true;
+    bool    favourites_only_ = false;
 };
 
 MainWindow::MainWindow (QWidget *parent) : QMainWindow (parent)
@@ -115,8 +138,17 @@ MainWindow::MainWindow (QWidget *parent) : QMainWindow (parent)
     nodeMenu->addAction (files);
     nodeMenu->addAction (term);
     nodeMenu->addAction (mail);
+    QAction *fav = new QAction (star_icon (), "Favourite", this);
+    fav->setShortcut (QKeySequence ("Ctrl+D"));
+    fav->setToolTip ("Add the selected node to the favourites, or take it off");
+    connect (fav, &QAction::triggered, this, [this] {
+        QString n = current_node ();
+        if (!n.isEmpty ()) toggle_favourite (n);
+    });
+    nodeMenu->addAction (fav);
     nodeMenu->addSeparator ();
     nodeMenu->addAction (refresh);
+    fav_menu_ = menuBar ()->addMenu ("F&avourites");
     auto *helpMenu = menuBar ()->addMenu ("&Help");
     helpMenu->addAction ("&About PathNoWorks", this, [this] {
         QMessageBox::about (this, "PathNoWorks",
@@ -133,8 +165,10 @@ MainWindow::MainWindow (QWidget *parent) : QMainWindow (parent)
     search_->setClearButtonEnabled (true);
     reachable_ = new QCheckBox ("Reachable only");
     reachable_->setChecked (true);
+    favs_only_ = new QCheckBox ("Favourites only");
     row->addWidget (search_, 1);
     row->addWidget (reachable_);
+    row->addWidget (favs_only_);
     v->addLayout (row);
     table_ = new QTableView;
     table_->setModel (filter_);
@@ -146,13 +180,21 @@ MainWindow::MainWindow (QWidget *parent) : QMainWindow (parent)
     table_->verticalHeader ()->hide ();
     table_->horizontalHeader ()->setStretchLastSection (true);
     table_->setContextMenuPolicy (Qt::ActionsContextMenu);
-    table_->addActions ({ files, term, mail });
+    auto *sep = new QAction (this);
+    sep->setSeparator (true);
+    table_->addActions ({ files, term, mail, sep, fav });
     v->addWidget (table_, 1);
     setCentralWidget (central);
 
-    auto update = [this] { filter_->set (search_->text (), reachable_->isChecked ()); };
+    auto update = [this] {
+        filter_->set (search_->text (), reachable_->isChecked (), favs_only_->isChecked ());
+    };
     connect (search_, &QLineEdit::textChanged, this, update);
     connect (reachable_, &QCheckBox::toggled, this, update);
+    connect (favs_only_, &QCheckBox::toggled, this, update);
+
+    favourites_ = QSettings ().value ("nodes/favourites").toStringList ();
+    show_favourites ();
     connect (table_, &QTableView::activated, this, [this] {
         QString n = current_node ();
         if (!n.isEmpty ()) open_files (n);
@@ -267,6 +309,8 @@ void MainWindow::refresh ()
             model_->appendRow (items);
             if (r.reachable ()) ++reachable;
         }
+        add_missing_favourites ();
+        show_favourites ();
         // A router's circuits are not ours to show.
         table_->setColumnHidden (c_circuit, !via.isEmpty ());
         table_->resizeColumnsToContents ();
@@ -278,6 +322,87 @@ void MainWindow::refresh ()
         emit refreshed (true, msg);
     });
 }
+
+// ------------------------------------------------------------- favourites
+
+bool MainWindow::is_favourite (const QString &node) const
+{
+    return favourites_.contains (node.trimmed ().toUpper ());
+}
+
+void MainWindow::toggle_favourite (const QString &node)
+{
+    QString n = node.trimmed ().toUpper ();
+    if (n.isEmpty ()) return;
+    if (!favourites_.removeAll (n)) favourites_ << n;
+    favourites_.sort ();
+    QSettings ().setValue ("nodes/favourites", favourites_);
+    add_missing_favourites ();
+    show_favourites ();
+    status_->setText (is_favourite (n) ? n + " is a favourite" : n + " is no longer a favourite");
+}
+
+// A favourite the node list does not have -- a name decnetd does not know,
+// or a node not in the router's view -- still gets a row.
+void MainWindow::add_missing_favourites ()
+{
+    for (const QString &f : favourites_) {
+        bool found = false;
+        for (int r = 0; r < model_->rowCount () && !found; ++r)
+            found = model_->item (r, c_name)->text ().toUpper () == f
+                 || model_->item (r, c_address)->text () == f;
+        if (found) continue;
+        QList<QStandardItem *> items;
+        for (int c = 0; c < c_count; ++c) items << new QStandardItem;
+        bool address = !f.isEmpty () && f[0].isDigit ();
+        items[address ? c_address : c_name]->setText (f);
+        items[c_name]->setData (address ? QString () : f, SORT_ROLE);
+        items[c_address]->setData (address ? address_key (f) : 0, SORT_ROLE);
+        items[c_state]->setText ("not in the node list");
+        items[c_state]->setData (items[c_state]->text (), SORT_ROLE);
+        model_->appendRow (items);
+    }
+}
+
+void MainWindow::show_favourites ()
+{
+    for (int r = 0; r < model_->rowCount (); ++r) {
+        QStandardItem *name = model_->item (r, c_name);
+        QString key = name->text ().isEmpty () ? model_->item (r, c_address)->text ()
+                                               : name->text ();
+        bool fav = is_favourite (key) || is_favourite (model_->item (r, c_address)->text ());
+        name->setData (fav, FAV_ROLE);
+        if (fav) name->setIcon (star_icon ());
+        else name->setIcon (QIcon::fromTheme (name->data (REACHABLE_ROLE).toBool ()
+                                              ? "network-server" : "network-offline"));
+    }
+    filter_->invalidate ();
+
+    // The menu: each favourite opens its files; Ctrl+D and Add for the rest.
+    fav_menu_->clear ();
+    for (const QString &f : favourites_) {
+        QMenu *m = fav_menu_->addMenu (star_icon (), f);
+        m->addAction (QIcon::fromTheme ("folder-remote"), "Files", this, [this, f] { open_files (f); });
+        m->addAction (QIcon::fromTheme ("utilities-terminal"), "Terminal", this,
+                      [this, f] { open_terminal_to (f); });
+        m->addAction (QIcon::fromTheme ("mail-message-new"), "Mail", this,
+                      [this, f] { write_mail (f + "::"); });
+        m->addSeparator ();
+        m->addAction ("Remove from favourites", this, [this, f] { toggle_favourite (f); });
+    }
+    if (!favourites_.isEmpty ()) fav_menu_->addSeparator ();
+    fav_menu_->addAction ("Add a node...", this, &MainWindow::ask_favourite);
+}
+
+void MainWindow::ask_favourite ()
+{
+    bool ok = false;
+    QString n = QInputDialog::getText (this, "Favourites", "Node name or address:",
+                                       QLineEdit::Normal, current_node (), &ok).trimmed ();
+    if (ok && !n.isEmpty () && !is_favourite (n)) toggle_favourite (n);
+}
+
+// ------------------------------------------------------------- actions
 
 void MainWindow::open_files (const QString &node)
 {
