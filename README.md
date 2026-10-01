@@ -1,13 +1,23 @@
 # PathNoWorks
 
-Pathworks-style DECnet tools for Linux, in C++20: network management, file
-access, a network drive, remote login and mail for VMS, RSX and HECnet,
-from a Linux desktop.
+> *Pathworks, but it works. Mostly. On Linux.*
+
+Back in the day, if you had a PC on a DEC site you probably had Pathworks
+on it: DECnet for your desktop, so the PC could see the VAXen down the
+hall, copy files off them, mount their disks as drive letters and `SET
+HOST` into them when nobody was looking. Then the PCs won, the VAXen went
+quiet, and in 6.1 Linux dropped what was left of its in-kernel DECnet.
+
+PathNoWorks is my attempt to get that desk back. It's a set of C++20
+tools, and a Qt desktop on top, that talk DECnet Phase IV to VMS, RSX,
+PyDECnet and the rest of HECnet. You get network management, file
+access, a network drive, remote login, LAT terminals, mail and MOP, all
+from an ordinary Linux machine.
 
 The DECnet node itself is [cppdecnet](../Decnet/cppdecnet)'s `decnetd`.
-The DECnet tools talk to it through its API socket, so they need no
-privileges and never touch the network directly. `pnw-lat` is the
-exception: LAT is not DECnet, and it speaks it on the LAN itself.
+The tools don't touch the network at all; they ask decnetd to do it for
+them over its API socket, so none of them needs root. The one rebel is
+`pnw-lat`: LAT isn't DECnet, so it goes straight onto the LAN by itself.
 
 ```
 pnw-ncp  pnw-sethost  pnw-mail  pnw-mop  pnw-dir  pnw-type  pnw-copy  pnw-delete  pnw-rename  pnw-fs
@@ -18,7 +28,7 @@ decnetd (cppdecnet): routing, NSP, session control, MOP, NICE, FAL
 DECnet: VMS, RSX, PyDECnet, HECnet
 ```
 
-## Tools
+## What's in the box
 
 | Tool | What it does | Guide |
 |---|---|---|
@@ -35,14 +45,14 @@ DECnet: VMS, RSX, PyDECnet, HECnet
 | `pnw-mail` | Send DECnet mail to `NODE::USER`, and take in mail for this node (Mail-11) | [pnw-mail](docs/pnw-mail.md) |
 | `pnw-mop` | MOP: stations on the LAN, their system IDs and counters, loop tests | [pnw-mop](docs/pnw-mop.md) |
 
-To let other nodes reach files on this machine, cppdecnet has `dnfal`, a
-FAL with its own access control; see "File access" in the cppdecnet
+Want other nodes to reach files on *this* machine? cppdecnet has `dnfal`,
+a FAL with its own access control. See "File access" in the cppdecnet
 README.
 
-New here? [Getting started](docs/getting-started.md) goes from building to
-copying your first file.
+New here? [Getting started](docs/getting-started.md) takes you from
+building it to copying your first file.
 
-## Quick look
+## A quick look
 
 ```sh
 export DECNETAPI=/run/decnet/api.sock        # decnetd's "api" socket
@@ -71,15 +81,17 @@ pnw-mop list                                    # stations on the LAN (MOP)
 pnw-mop loop BAJI -n 5
 ```
 
-Quote remote file specifications: the shell treats `[ ] * ; " $`
-specially.
+A word of warning you'll see again: **quote remote file specifications.**
+The shell has strong opinions about `[ ] * ; " $`, and VMS file names are
+full of them.
 
-## Build
+## Building it
 
-Needs CMake 3.20+, GCC 13+ or Clang 16+, and cppdecnet, by default at
-`../Decnet/cppdecnet`; CMake builds it with its own Makefile. `pnw-fs`
-also needs FUSE 3 (`fuse3` and `libfuse3-dev`), and the desktop needs Qt 6
-(`qt6-base-dev`); each is left out without them.
+You'll need CMake 3.20+, GCC 13+ or Clang 16+, and cppdecnet, which by
+default lives next door at `../Decnet/cppdecnet`. CMake builds cppdecnet
+for you with its own Makefile. `pnw-fs` also wants FUSE 3 (`fuse3` and
+`libfuse3-dev`) and the desktop wants Qt 6 (`qt6-base-dev`). Leave either
+out and you just don't get that piece; everything else still builds.
 
 ```sh
 cmake -S . -B build              # -DCPPDECNET_DIR=/path/to/cppdecnet
@@ -87,29 +99,45 @@ cmake --build build
 ctest --test-dir build
 ```
 
-The tests start real decnetd nodes on this machine and drive the tools
-against them: NCP, file access against both `dnfal` and PyDECnet's
-`fal.py`, access control, the FUSE mount, mail from one node to
-another, MOP, and the desktop's windows, driven offscreen. The PyDECnet tests are skipped if PyDECnet is not at
+The tests are the real thing, not mocks. They start actual decnetd nodes
+on your machine and drive the tools against them:
+
+- NCP;
+- file access, against both `dnfal` and PyDECnet's `fal.py`;
+- access control;
+- the FUSE mount;
+- mail from one node to another;
+- MOP;
+- and the desktop's windows, driven offscreen.
+
+The PyDECnet tests are skipped if PyDECnet isn't at
 `../Decnet/pydecnet/pydecnet` (`-DPYDECNET_DIR=...`), and the mount test
-without FUSE.
+is skipped without FUSE.
 
 `-DCPPDECNET_FLAVOUR=debug` links cppdecnet's sanitizer build and builds
-PathNoWorks with the sanitizers too.
+PathNoWorks with the sanitizers too. Slow, but it catches things.
 
-## Status and plans
+## Where it's at
 
-Everything above is tested against OpenVMS VAX 6.2 (DECnet-VAX 6.1) as
-well as cppdecnet and PyDECnet: NCP, directory, text and binary copies in
-both directions, rename, delete, the FUSE mount, CTERM logins and mail
-both ways. RSX has been tried for NCP, loopback, CTERM and LAT (up to
-login).
+Everything above has been tested against OpenVMS VAX 6.2 (DECnet-VAX 6.1)
+as well as cppdecnet and PyDECnet:
 
-Planned: the MOP console carrier (a remote console on a DECserver or
-VAX; `pnw-mop` has everything else); in the desktop, dragging files out,
-LAT and MOP.
+- NCP;
+- directories, and text and binary copies in both directions;
+- rename and delete;
+- the FUSE mount;
+- CTERM logins;
+- mail both ways.
 
-## Layout
+RSX has been tried for NCP, loopback, CTERM and LAT (up to login).
+
+Still on the list:
+
+- the MOP console carrier (a remote console on a DECserver or VAX;
+  `pnw-mop` has everything else);
+- in the desktop: dragging files out, LAT and MOP.
+
+## Finding your way around the source
 
 ```
 docs/             user guides
@@ -131,3 +159,8 @@ tools/pnw-mop/    MOP: system IDs, counters, loop
 gui/              pathnoworks, the Qt desktop
 tests/            unit tests, and integration tests against real nodes
 ```
+
+---
+
+*No VAXen were harmed in the making of this software. A few were woken up
+rather earlier than they'd have liked.*

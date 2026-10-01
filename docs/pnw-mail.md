@@ -1,7 +1,11 @@
 # pnw-mail
 
-Sends and receives DECnet mail (Mail-11), the mail of VMS `MAIL` and RSX
-`MAIL`: messages addressed `NODE::USER`.
+> `You have 1 new mail message from VAXXY::PNWTEST.`
+> *Still the best line a terminal ever printed.*
+
+This sends and receives DECnet mail (Mail-11), the mail behind VMS
+`MAIL` and RSX `MAIL`: messages addressed `NODE::USER`, long before
+anyone had heard of an `@`.
 
 ```
 pnw-mail [options] send [-s subject] NODE::USER[,NODE::USER...]
@@ -23,30 +27,31 @@ pnw-mail listen                          # mail for this node -> ~/Mail/decnet
 
 ## Sending
 
-The message is standard input, one record a line. It goes from your login
-name, as VMS MAIL's does: the far end sees it from `THISNODE::YOU`.
-Recipients on the same node share one connection. Each recipient gets
-its own answer:
+The message comes from standard input, one record per line. It goes out
+under your login name, as VMS MAIL's does, so the far end sees it from
+`THISNODE::YOU`. Recipients on the same node share one connection, and
+each recipient gets its own answer:
 
 ```
 %PNW-S-SENT, to VAXXY::SYSTEM
 %PNW-E-NOTSENT, to VAXXY::NOBODY: %MAIL-E-NOSUCHUSR, no such user NOBODY at node VAXXY
 ```
 
-A refused recipient does not stop the others. The exit status is 0 only
+One refused recipient doesn't stop the others. The exit status is 0 only
 if every recipient got the message.
 
 ### Nodes that want a login
 
 The far end's mail server runs as its default DECnet account. A VMS node
-without one refuses anonymous mail:
+without one turns away anonymous mail at the door:
 
 ```
 %PNW-E-NOTSENT, to VAXXY: Access control rejected
 ```
 
-Give a login in the address, as for file access. The message is still
-from you; the login only lets the mail server run:
+In that case, give a login in the address, as you would for file access.
+The message still comes from you; the login only lets the mail server
+run:
 
 ```sh
 pnw-mail send 'VAXXY"pnwtest secret"::SYSTEM' < letter.txt
@@ -54,10 +59,11 @@ pnw-mail send 'VAXXY"pnwtest secret"::SYSTEM' < letter.txt
 
 ## Receiving
 
-`pnw-mail listen` takes the MAIL object (27) on the node decnetd runs and
-appends every message to one mbox file, whatever user at this node it is
-addressed to. It runs until stopped; start it in the background or from
-a user service. Read the file with any mbox reader: `mutt -f ~/Mail/decnet`.
+`pnw-mail listen` takes the MAIL object (27) on the node decnetd runs,
+and appends every message to one mbox file, whoever at this node it's
+addressed to. It runs until you stop it, so start it in the background or
+from a user service. Any mbox reader will do for reading it:
+`mutt -f ~/Mail/decnet`.
 
 ```
 %PNW-I-LISTENING, for DECnet mail to PNW::, into /home/richard/Mail/decnet
@@ -65,41 +71,41 @@ a user service. Read the file with any mbox reader: `mutt -f ~/Mail/decnet`.
 ```
 
 The Mail-11 sender, its To and CC lines and the subject become the
-headers. Body lines starting "From " are written as ">From ", as mbox
-requires.
+headers. Body lines starting "From " are written as ">From ", because
+mbox insists, and has done since about the time VMS was new.
 
-From VMS:
+From VMS, it's the usual routine:
 
 ```
 MAIL> SEND
 To:     PNW::RICHARD
 ```
 
-VMS shows mail from a node it has no name for by address, as
-`29847::RICHARD` (29 × 1024 + 151, which is 29.151). Name this node on
-the VMS node to fix that:
+VMS shows mail from a node it has no name for by its number, as
+`29847::RICHARD` (29 × 1024 + 151, which is 29.151). It's correct, but
+not friendly. Tell the VMS node your name to fix that:
 
 ```
 $ MCR NCP DEFINE NODE 29.151 NAME PNW
 $ MCR NCP SET NODE 29.151 NAME PNW
 ```
 
-Only one program can take the MAIL object at a time. Do not also give
+Only one program can take the MAIL object at a time, so don't also give
 decnetd an `object` line for MAIL.
 
 ## Tested
 
-With OpenVMS VAX 6.2, in both directions: several recipients, CC,
-blank lines, and lines starting "From ". `ctest` runs pnw-mail to
-pnw-mail between two decnetd nodes. RSX MAIL has not been tried.
+With OpenVMS VAX 6.2, in both directions: several recipients, CC, blank
+lines, and lines starting "From ". `ctest` runs pnw-mail to pnw-mail
+between two decnetd nodes. RSX MAIL hasn't been tried.
 
-## Limits
+## What it won't do
 
-- Mail for every user goes to one file. There is no delivery to local
+- Mail for every user goes into one file. There's no delivery to local
   users' own mailboxes, and no forwarding to SMTP.
 - The listener takes one message at a time; a second sender waits.
-- Only plain text: no foreign-format files, and no `MAIL/FOREIGN`.
+- Plain text only: no foreign-format files, and no `MAIL/FOREIGN`.
 - DEC never published Mail-11. This follows dnprogs' `sendvmsmail` and
-  `vmsmaild` and what VMS does. The meaning of the option flags in a
-  sender's connect data is not known. A sender that sets any of them, as
-  VMS does, is taken to send VMS's full header.
+  `vmsmaild`, and what VMS actually does. Nobody knows what the option
+  flags in a sender's connect data mean. A sender that sets any of them,
+  as VMS does, is taken to send VMS's full header.

@@ -1,8 +1,13 @@
 # pnw-fs
 
-Mounts a directory on another DECnet node, so ordinary programs can use
-it: the "network drive" of Pathworks. It speaks DAP to the node's FAL,
-like the other file tools, through FUSE.
+> *Drive N: was always the VAX. Now it's `~/vms`.*
+
+This was the whole point of Pathworks, really: a directory on the VAX
+showing up on your PC as if it were a local disk. pnw-fs does the same
+for Linux. It mounts a directory on another DECnet node so that ordinary
+programs (your editor, `grep`, the file manager) can use it without ever
+knowing DECnet is involved. Underneath, it speaks DAP to the node's FAL
+like the other file tools, and talks to the kernel through FUSE.
 
 ```
 pnw-fs [options] NODE::directory mountpoint
@@ -27,43 +32,48 @@ fusermount3 -u ~/vms
 | `-d` | FUSE debugging output; implies `-f` |
 | `-o options` | FUSE mount options |
 
-The directory is checked before mounting: a wrong spec, password or node
-is reported at once rather than giving an empty mount.
+pnw-fs checks the directory before it mounts anything. A wrong spec,
+password or node gets reported straight away, rather than leaving you
+staring at an empty mount and wondering.
 
-It needs FUSE 3 (`fuse3` and `libfuse3-dev` on Debian and Ubuntu) and is
-not built without it.
+Read-only is the default on purpose. Add `--rw` when you mean it.
 
-## What you see
+It needs FUSE 3 (`fuse3` and `libfuse3-dev` on Debian and Ubuntu), and
+isn't built without it.
 
-- **Names.** VMS versions are hidden: `LOGIN.COM;3` is `LOGIN.COM`, and it
-  is the highest version. `SUB.DIR` is the directory `SUB`. Subdirectories
-  work as you would expect: `~/vms/SUB/X.TXT` is `DUA0:[USER.SUB]X.TXT`.
-- **Dates.** The file's revision date, or its creation date if there is
-  none.
-- **Permissions.** The owner, group and world rights from the file's
-  protection. The DEC system class has no Unix equivalent. Every file
-  appears to belong to you.
-- **Sizes.** What FAL reports. For binary files that is exact. For VMS
-  text files it is the size as stored, which is not the size once records
-  become lines, so a size shown may be a little off; reading still returns
-  every byte.
+## What you'll see
+
+- **Names.** VMS versions are hidden: `LOGIN.COM;3` shows up as
+  `LOGIN.COM`, and it's always the highest version. `SUB.DIR` becomes the
+  directory `SUB`. Subdirectories work the way you'd hope:
+  `~/vms/SUB/X.TXT` is `DUA0:[USER.SUB]X.TXT`.
+- **Dates.** The file's revision date, or its creation date if it hasn't
+  got one.
+- **Permissions.** Owner, group and world rights come from the file's
+  protection. VMS's system class has no Unix equivalent, so it quietly
+  drops out. Every file appears to belong to you.
+- **Sizes.** Whatever FAL reports. For binary files that's exact. For VMS
+  text files it's the size as stored, which isn't the size once records
+  become lines, so a size shown may be a little off. Reading still
+  returns every byte; it's only `ls` that's being optimistic.
 
 ## Reading and writing
 
-A file is fetched whole when it is opened, converted as `pnw-copy` would.
+A file is fetched whole when it's opened, converted as `pnw-copy` would.
 
-On a `--rw` mount, a file that is written is kept in memory and sent back
-whole when it is closed, as text or binary by its content. An error in
-sending shows up as a failed `close`, which most programs report as an
-input/output error.
+On a `--rw` mount, a file that's written is kept in memory and sent back
+whole when it's closed, as text or binary depending on its content. If
+sending fails, you'll see it as a failed `close`, which most programs
+report as an input/output error.
 
 `rm` deletes, and `mv` renames on the node. `chmod`, `chown` and `touch`
-are accepted but change nothing, so that `cp -p` and similar work.
+are accepted politely but change nothing, so that `cp -p` and friends
+don't fall over.
 
-Directory listings are kept for five seconds, so a change made on the node
-itself can take that long to appear.
+Directory listings are cached for five seconds, so a change made on the
+node itself can take that long to appear.
 
-## Errors
+## When it goes wrong
 
 | You see | The node said |
 |---|---|
@@ -74,19 +84,20 @@ itself can take that long to appear.
 | No space left on device | device full |
 | Input/output error | anything else; with `-f`, pnw-fs prints the reason |
 
-## Limits
+## What it won't do
 
-- Whole files in memory: fine for the files DEC systems usually hold, not
-  for very large ones.
+- Whole files live in memory. That's fine for the files DEC systems
+  usually hold, and not for very large ones.
 - Appending (`>>`) to a VMS text file may write at the wrong place, since
   the size it starts from is FAL's.
-- Directories cannot be created or removed.
+- Directories can't be created or removed.
 - One request at a time. A slow node makes every program using the mount
-  wait.
+  wait its turn, just like a shared terminal room.
 
-On VMS every file written is a new version. pnw-fs sends a file only when
-something has been written to it since it was last sent, so the shell's
-`> file` makes one version, not an empty one and then the real one.
+A nice VMS habit survives: every file written is a new version. pnw-fs
+only sends a file when something has actually been written to it since
+it was last sent, so the shell's `> file` makes one new version, rather
+than an empty one followed by the real one.
 
-If pnw-fs stops while mounted, programs see "Transport endpoint is not
-connected". `fusermount3 -u mountpoint` clears it.
+If pnw-fs stops while still mounted, programs will see "Transport
+endpoint is not connected". `fusermount3 -u mountpoint` clears it.
