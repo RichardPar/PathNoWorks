@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=PathNoWorks
+GenericName=DECnet Desktop
+Comment=Files, terminals and mail on VMS, RSX and HECnet nodes
+Exec=pathnoworks
+Icon=network-workgroup
+Terminal=false
+Categories=Network;FileTransfer;

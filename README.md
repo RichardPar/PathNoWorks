@@ -22,6 +22,7 @@ DECnet: VMS, RSX, PyDECnet, HECnet
 
 | Tool | What it does | Guide |
 |---|---|---|
+| `pathnoworks` | The desktop: the network, a node's files (browse, copy both ways, mount), terminals and mail | [desktop](docs/desktop.md) |
 | `pnw-ncp` | NCP: `SHOW` and `LIST` network information from any node, `LOOP NODE` | [pnw-ncp](docs/pnw-ncp.md) |
 | `pnw-dir` | List remote files | [file access](docs/file-access.md) |
 | `pnw-type` | Show a remote file | [file access](docs/file-access.md) |
@@ -77,7 +78,8 @@ specially.
 
 Needs CMake 3.20+, GCC 13+ or Clang 16+, and cppdecnet, by default at
 `../Decnet/cppdecnet`; CMake builds it with its own Makefile. `pnw-fs`
-also needs FUSE 3 (`fuse3` and `libfuse3-dev`) and is left out without it.
+also needs FUSE 3 (`fuse3` and `libfuse3-dev`), and the desktop needs Qt 6
+(`qt6-base-dev`); each is left out without them.
 
 ```sh
 cmake -S . -B build              # -DCPPDECNET_DIR=/path/to/cppdecnet
@@ -88,7 +90,7 @@ ctest --test-dir build
 The tests start real decnetd nodes on this machine and drive the tools
 against them: NCP, file access against both `dnfal` and PyDECnet's
 `fal.py`, access control, the FUSE mount, mail from one node to
-another, and MOP. The PyDECnet tests are skipped if PyDECnet is not at
+another, MOP, and the desktop's windows, driven offscreen. The PyDECnet tests are skipped if PyDECnet is not at
 `../Decnet/pydecnet/pydecnet` (`-DPYDECNET_DIR=...`), and the mount test
 without FUSE.
 
@@ -104,7 +106,8 @@ both ways. RSX has been tried for NCP, loopback, CTERM and LAT (up to
 login).
 
 Planned: the MOP console carrier (a remote console on a DECserver or
-VAX; `pnw-mop` has everything else), then Windows and a Qt GUI.
+VAX; `pnw-mop` has everything else); in the desktop, dragging files out,
+LAT and MOP.
 
 ## Layout
 
@@ -116,6 +119,7 @@ lib/pnwdap/       DAP client (NFT): directory, get, put, erase, rename;
 lib/pnwcterm/     CTERM terminal end: foundation, reads, editing, writes
 lib/pnwlat/       LAT terminal end: announcements, circuit, session
 lib/pnwmail/      Mail-11 sender and receiver; mbox
+lib/pnwnice/      NICE queries: known nodes
 lib/pnwterm/      the local terminal: raw mode, size, UTF-8 bridge
 tools/pnw-ncp/    Network Control Program
 tools/pnw-nft/    pnw-dir, pnw-type, pnw-copy, pnw-delete, pnw-rename
@@ -124,5 +128,6 @@ tools/pnw-sethost/ CTERM remote login
 tools/pnw-lat/    LAT terminal, and pnw-latsock, its privileged helper
 tools/pnw-mail/   DECnet mail
 tools/pnw-mop/    MOP: system IDs, counters, loop
+gui/              pathnoworks, the Qt desktop
 tests/            unit tests, and integration tests against real nodes
 ```

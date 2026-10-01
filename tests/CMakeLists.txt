@@ -64,3 +64,16 @@ add_test (NAME mop_smoke
           COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/mop_smoke.sh
                   $<TARGET_FILE:pnw-mop> ${CPPDECNET_BIN}/decnetd)
 set_tests_properties (mop_smoke PROPERTIES TIMEOUT 120)
+
+# The desktop, if it was built.
+if (TARGET pnwgui)
+    find_package (Qt6 REQUIRED COMPONENTS Test)
+    add_executable (test_gui test_gui.cc)
+    set_target_properties (test_gui PROPERTIES AUTOMOC ON)
+    target_link_libraries (test_gui PRIVATE pnwgui Qt6::Test)
+    add_test (NAME gui_smoke
+              COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/gui_smoke.sh
+                      $<TARGET_FILE:test_gui> ${CPPDECNET_BIN}/decnetd
+                      ${CPPDECNET_BIN}/dnfal $<TARGET_FILE_DIR:pnw-dir>)
+    set_tests_properties (gui_smoke PROPERTIES TIMEOUT 180)
+endif ()
