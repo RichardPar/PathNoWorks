@@ -13,6 +13,9 @@ KIND=$3
 FAL=$4
 
 dir=$(mktemp -d /tmp/pnw.XXXXXX) || exit 1
+# Git Bash on Windows: the native programs need a Windows path, in the
+# config files as well as on the command line.
+case $(uname -s) in MINGW*|MSYS*) dir=$(cd "$dir" && pwd -W) ;; esac
 port=$(( 20000 + ($$ + 7) % 20000 ))
 pids=
 cleanup () {
@@ -54,7 +57,7 @@ EOC
 
 S="-s $dir/b.sock"
 i=0
-until [ -S "$dir/b.sock" ] && "$TOOLS/pnw-dir" $S 'NODEA::hello.txt' >/dev/null 2>&1; do
+until [ -e "$dir/b.sock" ] && "$TOOLS/pnw-dir" $S 'NODEA::hello.txt' >/dev/null 2>&1; do
     i=$((i + 1))
     if [ $i -gt 60 ]; then
         echo "FAIL  FAL did not answer"; cat "$dir/a.log"; exit 1

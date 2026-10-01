@@ -9,6 +9,7 @@
 
 #include <QFutureWatcher>
 #include <QObject>
+#include <QProcess>
 #include <QString>
 #include <QStringList>
 #include <QtConcurrent/QtConcurrentRun>
@@ -33,9 +34,14 @@ void override_api_socket (const QString &path);
 QString find_tool (const QString &name);
 
 // Open a terminal window running a command.  xterm as a VT340, so DEC
-// graphics -- Sixel, ReGIS -- work, as pnw-sethost's guide describes.
+// graphics -- Sixel, ReGIS -- work, as pnw-sethost's guide describes.  On
+// Windows: Windows Terminal if it is installed, else a console window.
 bool open_terminal (const QString &title, const QStringList &command,
                     QString *error = nullptr);
+
+// Run a console tool from here without a console window of its own, which
+// Windows would otherwise open for it.  Nothing elsewhere.
+void no_console_window (QProcess &p);
 
 // Log in to node over CTERM in a terminal window.
 bool open_sethost (const QString &node, QString *error = nullptr);

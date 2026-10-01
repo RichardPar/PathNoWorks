@@ -14,12 +14,28 @@ if (NOT CMAKE_BUILD_TYPE)
     set (CMAKE_BUILD_TYPE RelWithDebInfo)
 endif ()
 
-add_compile_options (-Wall -Wextra -Wpedantic -Wshadow -Wno-unused-parameter)
+if (MSVC)
+    add_compile_options (/W4 /permissive- /Zc:__cplusplus /utf-8
+                         /wd4100 /wd4458)
+else ()
+    add_compile_options (-Wall -Wextra -Wpedantic -Wshadow -Wno-unused-parameter)
+endif ()
 
 # ----------------------------------------------------------------- cppdecnet
 
 set (CPPDECNET_DIR "${CMAKE_SOURCE_DIR}/../Decnet/cppdecnet"
      CACHE PATH "cppdecnet source tree")
+
+if (MSVC)
+    # No make on Windows: build cppdecnet from its own CMake project, which
+    # also gives decnetd and dnfal.  Its compile definitions (Windows
+    # version, no min/max macros and so on) come with the decnet target.
+    get_filename_component (CPPDECNET_DIR "${CPPDECNET_DIR}" ABSOLUTE)
+    set (CPPDECNET_TESTS OFF CACHE BOOL "" FORCE)
+    add_subdirectory ("${CPPDECNET_DIR}" cppdecnet)
+    set (CPPDECNET_BIN "${CMAKE_BINARY_DIR}/cppdecnet")    # decnetd, dnfal
+    find_package (Threads REQUIRED)
+else ()
 set (CPPDECNET_FLAVOUR "release"
      CACHE STRING "cppdecnet build to link: release, or debug (sanitizers)")
 set_property (CACHE CPPDECNET_FLAVOUR PROPERTY STRINGS release debug)
@@ -59,6 +75,7 @@ if (CPPDECNET_FLAVOUR STREQUAL "debug")
     add_compile_options (-fsanitize=address,undefined -fno-omit-frame-pointer)
     add_link_options (-fsanitize=address,undefined)
 endif ()
+endif ()    # MSVC
 
 # -------------------------------------------------------------------- targets
 

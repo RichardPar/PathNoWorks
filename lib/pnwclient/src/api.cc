@@ -2,16 +2,25 @@
 
 #include "pnw/api.h"
 
+#include "decnet/common/socket.h"
+#include "decnet/config.h"
+
 #include <algorithm>
 #include <cctype>
 #include <cerrno>
 #include <cstdlib>
 #include <cstring>
 
+#ifdef _WIN32
+// Sockets are not inherited by the programs pnw tools start; see
+// CreateProcess in cppdecnet's process.cc for why that matters.
+#define SOCK_CLOEXEC 0
+#else
 #include <poll.h>
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <unistd.h>
+#endif
 
 namespace pnw {
 
@@ -48,7 +57,7 @@ Rejected::Rejected (unsigned reason)
 std::string Api::default_path ()
 {
     const char *env = std::getenv ("DECNETAPI");
-    return env && *env ? env : "/tmp/decnetapi.sock";
+    return env && *env ? env : decnet::default_api_socket ();
 }
 
 Api::Api (std::string path) : path_ (std::move (path))
@@ -59,11 +68,11 @@ Api::Api (std::string path) : path_ (std::move (path))
         throw ApiError ("API socket path too long: " + path_);
     std::memcpy (a.sun_path, path_.c_str (), path_.size () + 1);
 
-    fd_ = ::socket (AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
+    fd_ = decnet::sock_open (AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC);
     if (fd_ < 0 || ::connect (fd_, reinterpret_cast<sockaddr *> (&a),
                               sizeof a) < 0) {
-        std::string why = std::strerror (errno);
-        if (fd_ >= 0) ::close (fd_);
+        std::string why = decnet::sock_strerror (decnet::sock_errno ());
+        if (fd_ >= 0) decnet::sock_close (fd_);
         fd_ = -1;
         throw ApiError ("cannot reach decnetd at " + path_ + ": " + why
                         + " (is it running with an \"api\" line?)");
@@ -77,7 +86,7 @@ Api::Api (std::string path) : path_ (std::move (path))
 
 Api::~Api ()
 {
-    if (fd_ >= 0) ::close (fd_);
+    if (fd_ >= 0) decnet::sock_close (fd_);
 }
 
 void Api::send (const json::Object &o)
@@ -85,12 +94,12 @@ void Api::send (const json::Object &o)
     std::string text = o.encode () + "\n";
     std::size_t off = 0;
     while (off < text.size ()) {
-        ssize_t n = ::send (fd_, text.data () + off, text.size () - off,
-                            MSG_NOSIGNAL);
-        if (n < 0 && errno == EINTR) continue;
+        ssize_t n = decnet::sock_send (fd_, text.data () + off,
+                                       text.size () - off);
+        if (n < 0 && decnet::sock_interrupted (decnet::sock_errno ())) continue;
         if (n <= 0)
             throw ApiError (std::string ("lost the API connection: ")
-                            + std::strerror (errno));
+                            + decnet::sock_strerror (decnet::sock_errno ()));
         off += static_cast<std::size_t> (n);
     }
 }
@@ -118,13 +127,12 @@ std::optional<json::Object> Api::read (Timeout t)
                                 + e.what ());
             }
         }
-        pollfd p { fd_, POLLIN, 0 };
-        int r = ::poll (&p, 1, remaining (deadline));
-        if (r < 0 && errno == EINTR) continue;
-        if (r == 0) return std::nullopt;
+        decnet::PollResult p = decnet::poll_socket (fd_, true, false,
+                                                    remaining (deadline));
+        if (p.timeout) return std::nullopt;
         char buf[65536];
-        ssize_t n = ::recv (fd_, buf, sizeof buf, 0);
-        if (n < 0 && errno == EINTR) continue;
+        ssize_t n = decnet::sock_recv (fd_, buf, sizeof buf);
+        if (n < 0 && decnet::sock_interrupted (decnet::sock_errno ())) continue;
         if (n <= 0) throw ApiError ("decnetd closed the API connection");
         pending_.append (buf, static_cast<std::size_t> (n));
     }

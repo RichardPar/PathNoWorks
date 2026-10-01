@@ -24,18 +24,36 @@
 #include <iostream>
 #include <string>
 
-#include <langinfo.h>
-#include <poll.h>
-#include <sys/ioctl.h>
-#include <termios.h>
+#include "decnet/common/platform.h"
+
+#ifdef _WIN32
+#include <io.h>
+#define STDOUT_FILENO 1
+#else
 #include <unistd.h>
+#endif
 
 namespace {
 
 constexpr std::uint8_t ESCAPE_KEY = 0x1d;           // Ctrl-]
 
+#ifdef _WIN32
+// No SIGWINCH: the size is checked at least this often instead.
+constexpr int resize_check_ms = 500;
+#else
 volatile std::sig_atomic_t resized = 0;
 void on_winch (int) { resized = 1; }
+#endif
+
+// A pollfd for input on fd.  On Windows the fd member is a SOCKET, so a
+// braced initialiser from an int will not do.
+pollfd poll_in (int fd)
+{
+    pollfd p {};
+    p.fd = fd;
+    p.events = POLLIN;
+    return p;
+}
 
 // PNW_TRACE=file: every message to and from the node, in hex.
 std::FILE *trace_file = nullptr;
@@ -103,10 +121,13 @@ int main (int argc, char **argv)
     }
 
     std::cerr << "%PNW-S-CONNECTED, to " << node << "; Ctrl-] q to leave\r\n";
+#ifndef _WIN32
     std::signal (SIGWINCH, on_winch);
+#endif
     std::string ended = "connection closed by " + node;
     {
         pnw::RawTerminal raw;
+        pnw::TerminalInput keyboard;
         pnw::Cterm cterm (term,
             [&] (decnet::ByteView m) { trace (">", m); link->send (m); },
             [&] (decnet::ByteView b) {
@@ -121,12 +142,24 @@ int main (int argc, char **argv)
         bool escape = false;
         try {
             while (!cterm.unbound ()) {
+#ifdef _WIN32
+                {
+                    std::uint16_t w = term.width, h = term.height;
+                    pnw::terminal_size (w, h);
+                    if (w != term.width || h != term.height) {
+                        term.width = w;
+                        term.height = h;
+                        cterm.resize (w, h);
+                    }
+                }
+#else
                 if (resized) {
                     resized = 0;
                     std::uint16_t w = term.width, h = term.height;
                     pnw::terminal_size (w, h);
                     cterm.resize (w, h);
                 }
+#endif
                 int wait = -1;
                 if (auto due = cterm.deadline ()) {
                     auto ms = std::chrono::duration_cast<std::chrono::milliseconds> (
@@ -134,18 +167,21 @@ int main (int argc, char **argv)
                     wait = ms < 0 ? 0 : static_cast<int> (ms);
                 }
                 if (api->buffered ()) wait = 0;
-                pollfd p[2] = { { STDIN_FILENO, POLLIN, 0 }, { api->fd (), POLLIN, 0 } };
-                int r = ::poll (p, 2, wait);
-                if (r < 0 && errno == EINTR) continue;
+#ifdef _WIN32
+                if (wait < 0 || wait > resize_check_ms) wait = resize_check_ms;
+#endif
+                pollfd p[2] = { poll_in (keyboard.fd ()), poll_in (api->fd ()) };
+                int r = decnet::sock_poll (p, 2, wait);
+                if (r < 0 && decnet::sock_interrupted (decnet::sock_errno ())) continue;
                 cterm.tick (pnw::Cterm::Clock::now ());
 
                 if (p[0].revents & (POLLIN | POLLHUP)) {
                     std::uint8_t buf[512];
-                    ssize_t n = ::read (STDIN_FILENO, buf, sizeof buf);
+                    long n = keyboard.read (buf, sizeof buf);
                     if (n <= 0) { ended = "end of input"; break; }
                     decnet::Bytes keys;
                     bool quit = false;
-                    for (ssize_t i = 0; i < n; ++i) {
+                    for (long i = 0; i < n; ++i) {
                         std::uint8_t c = buf[i];
                         if (escape) {
                             escape = false;

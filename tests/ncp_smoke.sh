@@ -9,6 +9,9 @@ NCP=$1
 DECNETD=$2
 
 dir=$(mktemp -d /tmp/pnw.XXXXXX) || exit 1
+# Git Bash on Windows: the native programs need a Windows path, in the
+# config files as well as on the command line.
+case $(uname -s) in MINGW*|MSYS*) dir=$(cd "$dir" && pwd -W) ;; esac
 port=$(( 20000 + $$ % 20000 ))
 pids=
 cleanup () {
@@ -50,7 +53,7 @@ check () {                  # check NAME PATTERN -- command...
 
 # Wait for the API socket and for routing to reach the other node.
 i=0
-until [ -S "$dir/b.sock" ] && \
+until [ -e "$dir/b.sock" ] && \
       "$NCP" -s "$dir/b.sock" loop node NODEA >/dev/null 2>&1; do
     i=$((i + 1))
     if [ $i -gt 60 ]; then

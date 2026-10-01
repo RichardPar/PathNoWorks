@@ -147,12 +147,19 @@ bool decw_bridge (const QString &node, QString *error)
 
     // Start again with the wider list: one bridge serves display 0.
     if (bridge) {
+#ifdef Q_OS_WIN
+        // terminate () asks a window to close, and pnw-x11 has none.
+        bridge->kill ();
+#else
         bridge->terminate ();
+#endif
         bridge->waitForFinished (3000);
         delete bridge;
     }
+#ifndef Q_OS_WIN
     // DEC's font names, if decw-font-aliases.py has made them: the font
-    // path lasts only as long as the X session, so add it each time.
+    // path lasts only as long as the X session, so add it each time.  (On
+    // Windows the X server's own font path is set where it is started.)
     QString fonts = QDir::home ().filePath (".local/share/fonts/decwindows");
     if (QFile::exists (fonts + "/fonts.alias")) {
         QProcess q;
@@ -163,7 +170,9 @@ bool decw_bridge (const QString &node, QString *error)
             QProcess::execute ("xset", { "fp", "rehash" });
         }
     }
+#endif
     bridge = new QProcess (QCoreApplication::instance ());
+    no_console_window (*bridge);
     bridge->setProcessChannelMode (QProcess::MergedChannels);
     bridge->start (tool, { "--socket", api_socket (), "serve", "--allow", allowed.join (',') });
     if (!bridge->waitForStarted (5000)) {

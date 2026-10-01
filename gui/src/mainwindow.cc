@@ -25,6 +25,7 @@
 #include <QSortFilterProxyModel>
 #include <QStandardItemModel>
 #include <QStatusBar>
+#include <QStyle>
 #include <QTableView>
 #include <QToolBar>
 #include <QToolButton>
@@ -181,7 +182,7 @@ MainWindow::MainWindow (QWidget *parent) : QMainWindow (parent)
     auto *helpMenu = menuBar ()->addMenu ("&Help");
     helpMenu->addAction ("&About PathNoWorks", this, [this] {
         QMessageBox::about (this, "PathNoWorks",
-            "<b>PathNoWorks</b><p>Pathworks-style DECnet for Linux: files, "
+            "<b>PathNoWorks</b><p>Pathworks-style DECnet for Linux and Windows: files, "
             "terminals and mail on VMS, RSX and HECnet nodes, through cppdecnet's "
             "decnetd.</p>");
     });
@@ -343,6 +344,15 @@ void MainWindow::refresh ()
         // A router's circuits are not ours to show.
         table_->setColumnHidden (c_circuit, !via.isEmpty ());
         table_->resizeColumnsToContents ();
+        // Room for the sort arrow too: some styles (Windows 11's) draw it
+        // over the heading rather than beside it.
+        int arrow = table_->style ()->pixelMetric (QStyle::PM_HeaderMarkSize, nullptr,
+                                                   table_->horizontalHeader ());
+        // Not the last column shown, which stretches to fill anyway.
+        int last = c_count - 1;
+        while (last > 0 && table_->isColumnHidden (last)) --last;
+        for (int c = 0; c < last; ++c)
+            table_->setColumnWidth (c, table_->columnWidth (c) + arrow);
         QString msg = QString ("%1 through decnetd at %2: %3 nodes known, %4 reachable")
                           .arg (system_, socket).arg (rows.size ()).arg (reachable);
         if (!via.isEmpty ()) msg += ", as router " + via + " sees them";

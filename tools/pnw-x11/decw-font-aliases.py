@@ -18,11 +18,19 @@ the names inside them are read.  DIR is where to write fonts.dir and
 fonts.alias, by default ~/.local/share/fonts/decwindows.  --install adds
 DIR to the X server's font path for this session (xset +fp); the
 PathNoWorks desktop does that itself when it starts pnw-x11.
+
+On Windows, for VcXsrv: the server's fonts are read from its own font
+directories rather than asked of it (VcXsrv has no xlsfonts or xset), DIR
+defaults to %LOCALAPPDATA%\\PathNoWorks\\fonts\\decwindows, and the
+PathNoWorks desktop adds it to the font path when it starts VcXsrv.
+
+    py decw-font-aliases.py FONTS
 """
 
 import glob
 import os
 import re
+import shutil
 import subprocess
 import sys
 
@@ -72,11 +80,44 @@ def decw_names (top):
     return sorted (names)
 
 
+def vcxsrv_font_dirs ():
+    """VcXsrv's own font directories, on Windows; else nothing."""
+    if os.name != "nt":
+        return []
+    top = None
+    try:
+        import winreg
+        with winreg.OpenKey (winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\VcXsrv") as k:
+            top = winreg.QueryValueEx (k, "Install_Dir_64")[0]
+    except OSError:
+        top = os.path.join (os.environ.get ("ProgramFiles", r"C:\Program Files"), "VcXsrv")
+    # Its default font path, in its order.
+    dirs = [os.path.join (top, "fonts", d)
+            for d in ("misc", "TTF", "OTF", "Type1", "100dpi", "75dpi")]
+    return [d for d in dirs if os.path.isdir (d)]
+
+
 def server_fonts ():
     """The X server's fonts, as XLFD field lists, lower case."""
-    out = subprocess.run (["xlsfonts"], capture_output=True, text=True, check=True).stdout
+    if shutil.which ("xlsfonts"):
+        out = subprocess.run (["xlsfonts"], capture_output=True, text=True,
+                              check=True).stdout
+        lines = out.splitlines ()
+    else:
+        # No xlsfonts (VcXsrv): what its font directories say they hold.
+        # fonts.dir and fonts.scale are a count, then "file name" lines.
+        lines = []
+        for d in vcxsrv_font_dirs ():
+            for index in ("fonts.dir", "fonts.scale"):
+                p = os.path.join (d, index)
+                if os.path.exists (p):
+                    with open (p, encoding="latin-1") as f:
+                        lines += [l.split (" ", 1)[1] for l in f.read ().splitlines ()[1:]
+                                  if " " in l]
+        if not lines:
+            sys.exit ("cannot list the X server's fonts: no xlsfonts, and no VcXsrv")
     fonts = []
-    for line in out.splitlines ():
+    for line in lines:
         f = xlfd (line.strip ().lower ())
         if f:
             fonts.append (f)
@@ -145,17 +186,24 @@ def main ():
     if not args:
         print (__doc__.strip (), file=sys.stderr)
         return 2
-    out = args[1] if len (args) > 1 else os.path.expanduser ("~/.local/share/fonts/decwindows")
+    if os.name == "nt":
+        default = os.path.join (os.environ.get ("LOCALAPPDATA", os.path.expanduser ("~")),
+                                "PathNoWorks", "fonts", "decwindows")
+    else:
+        default = os.path.expanduser ("~/.local/share/fonts/decwindows")
+    out = args[1] if len (args) > 1 else default
 
     names = decw_names (args[0])
     if not names:
         print ("no DECwindows fonts found under %s" % args[0], file=sys.stderr)
         return 1
     # What the server has without this directory's aliases: run again, it
-    # would otherwise find every DEC name there already.
-    fp = subprocess.run (["xset", "q"], capture_output=True, text=True).stdout
+    # would otherwise find every DEC name there already.  (Without xset --
+    # VcXsrv -- the fonts come from its own directories, not ours.)
+    have_xset = shutil.which ("xset") is not None
+    fp = subprocess.run (["xset", "q"], capture_output=True, text=True).stdout if have_xset else ""
     ours = out.rstrip ("/") + "/"
-    was_on = ours in fp or out.rstrip ("/") + "," in fp
+    was_on = have_xset and (ours in fp or out.rstrip ("/") + "," in fp)
     if was_on:
         subprocess.run (["xset", "-fp", ours], check=False)
     try:
@@ -190,7 +238,10 @@ def main ():
         print ("%d use DEC's own character sets (DECtech, DECmath, ...), which have "
                "no stand-in here" % len (missing))
 
-    if install or was_on:
+    if (install or was_on) and not have_xset:
+        print ("no xset: the PathNoWorks desktop adds it to VcXsrv's font path "
+               "when it starts VcXsrv")
+    elif install or was_on:
         fp = subprocess.run (["xset", "q"], capture_output=True, text=True).stdout
         if out.rstrip ("/") not in fp:
             subprocess.run (["xset", "+fp", ours], check=True)

@@ -23,7 +23,14 @@
 #include <string>
 #include <vector>
 
+#include "decnet/common/platform.h"
+
+#ifdef _WIN32
+#include <io.h>
+#define STDIN_FILENO 0
+#else
 #include <unistd.h>
+#endif
 
 namespace nm = decnet::nice;
 using decnet::Nodeid;

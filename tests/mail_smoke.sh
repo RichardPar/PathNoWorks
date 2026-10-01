@@ -9,6 +9,9 @@ MAIL=$1
 DECNETD=$2
 
 dir=$(mktemp -d /tmp/pnw.XXXXXX) || exit 1
+# Git Bash on Windows: the native programs need a Windows path, in the
+# config files as well as on the command line.
+case $(uname -s) in MINGW*|MSYS*) dir=$(cd "$dir" && pwd -W) ;; esac
 port=$(( 20000 + ($$ + 29) % 20000 ))
 pids=
 cleanup () {
@@ -39,7 +42,7 @@ EOC
 "$DECNETD" "$dir/b.conf" > "$dir/b.log" 2>&1 & pids="$pids $!"
 
 i=0
-until [ -S "$dir/a.sock" ] && [ -S "$dir/b.sock" ]; do
+until [ -e "$dir/a.sock" ] && [ -e "$dir/b.sock" ]; do
     i=$((i + 1)); [ $i -gt 50 ] && fail "decnetd did not start"
     sleep 0.2
 done

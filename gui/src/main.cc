@@ -18,6 +18,16 @@ int main (int argc, char **argv)
     QApplication::setApplicationName ("PathNoWorks");
     QApplication::setOrganizationName ("PathNoWorks");
     QApplication::setApplicationVersion ("0.1");
+
+    // Tango, built in (gui/icons): Windows has no icon theme, and Qt's
+    // stand-in there is a few monochrome glyphs; elsewhere it fills any
+    // gaps in the desktop's own theme.
+    QIcon::setThemeSearchPaths (QIcon::themeSearchPaths () << ":/icons");
+#ifdef Q_OS_WIN
+    QIcon::setThemeName ("tango");
+#else
+    QIcon::setFallbackThemeName ("tango");
+#endif
     QApplication::setWindowIcon (QIcon::fromTheme ("network-workgroup"));
 
     QCommandLineParser p;

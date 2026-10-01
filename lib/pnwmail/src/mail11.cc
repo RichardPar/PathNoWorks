@@ -8,9 +8,17 @@
 #include <ctime>
 #include <iostream>
 
+#include "decnet/common/platform.h"
+
 #include <fcntl.h>
+#ifdef _WIN32
+#include <io.h>
+#include <sys/stat.h>
+#include <windows.h>
+#else
 #include <sys/file.h>
 #include <unistd.h>
+#endif
 
 namespace pnw {
 
@@ -194,12 +202,41 @@ bool mail11_receive (Link &link, const Incoming &in,
     }
 }
 
+namespace {
+
+// Hold the mailbox against other writers, as mail delivery agents do.
+#ifdef _WIN32
+int open_mbox (const std::string &path)
+{
+    // Binary: an mbox has LF line ends on every system.
+    return ::_open (path.c_str (), _O_WRONLY | _O_APPEND | _O_CREAT | _O_BINARY,
+                    _S_IREAD | _S_IWRITE);
+}
+
+void lock_mbox (int fd, bool on)
+{
+    HANDLE h = reinterpret_cast<HANDLE> (::_get_osfhandle (fd));
+    OVERLAPPED ov {};
+    if (on) ::LockFileEx (h, LOCKFILE_EXCLUSIVE_LOCK, 0, MAXDWORD, MAXDWORD, &ov);
+    else    ::UnlockFileEx (h, 0, MAXDWORD, MAXDWORD, &ov);
+}
+#else
+int open_mbox (const std::string &path)
+{
+    return ::open (path.c_str (), O_WRONLY | O_APPEND | O_CREAT, 0600);
+}
+
+void lock_mbox (int fd, bool on) { ::flock (fd, on ? LOCK_EX : LOCK_UN); }
+#endif
+
+}   // namespace
+
 void append_mbox (const std::string &path, const MailMessage &m)
 {
-    int fd = ::open (path.c_str (), O_WRONLY | O_APPEND | O_CREAT, 0600);
+    int fd = open_mbox (path);
     if (fd < 0)
         throw ApiError ("cannot open " + path + ": " + std::strerror (errno));
-    ::flock (fd, LOCK_EX);
+    lock_mbox (fd, true);
 
     std::time_t now = std::time (nullptr);
     char date[64], asc[64];
@@ -227,10 +264,10 @@ void append_mbox (const std::string &path, const MailMessage &m)
         s += l + "\n";
     }
     s += "\n";
-    ssize_t w = ::write (fd, s.data (), s.size ());
-    ::flock (fd, LOCK_UN);
+    auto w = ::write (fd, s.data (), static_cast<unsigned> (s.size ()));
+    lock_mbox (fd, false);
     ::close (fd);
-    if (w != static_cast<ssize_t> (s.size ()))
+    if (w != static_cast<decltype (w)> (s.size ()))
         throw ApiError ("cannot write " + path);
 }
 

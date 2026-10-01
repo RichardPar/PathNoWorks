@@ -16,6 +16,7 @@
 
 #include <cstdio>
 #include <cstring>
+#include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <map>
@@ -23,6 +24,16 @@
 #include <string>
 #include <sys/stat.h>
 #include <vector>
+
+#ifdef _WIN32
+#include <fcntl.h>
+#include <io.h>
+#define S_ISDIR(m) (((m) & _S_IFMT) == _S_IFDIR)
+// Where a local path's file name starts after.
+constexpr const char *path_separators = "/\\:";
+#else
+constexpr const char *path_separators = "/";
+#endif
 
 #ifndef PNW_COMMAND
 #error "build with PNW_COMMAND defined as dir, type, copy, delete or rename"
@@ -137,6 +148,10 @@ int type (pnw::Api &api, const Options &o)
     auto spec = pnw::RemoteSpec::parse (o.args[0]);
     pnw::DapSession s (api, spec, o.proxy);
     s.set_trace (o.trace);
+#ifdef _WIN32
+    // The file as it is, even redirected: no LF to CR LF.
+    ::_setmode (::_fileno (stdout), _O_BINARY);
+#endif
     s.get (spec.path, o.mode, [] (decnet::ByteView b) {
         std::fwrite (b.data (), 1, b.size (), stdout);
     });
@@ -181,7 +196,7 @@ int upload (pnw::Api &api, const Options &o)
                                                          : std::strerror (errno)));
         std::string path = spec.path;
         if (names_directory (path))
-            path += local.substr (local.find_last_of ('/') + 1);
+            path += local.substr (local.find_last_of (path_separators) + 1);
 
         bool text;
         if (o.mode == pnw::Transfer::automatic) {
@@ -265,9 +280,13 @@ int download (pnw::Api &api, const Options &o)
                     out->close ();
                     if (!*out) throw pnw::ApiError ("error writing " + tmp);
                     out.reset ();
-                    if (std::rename (tmp.c_str (), local.c_str ()) != 0)
+                    // Replacing what is there: std::rename will not on
+                    // Windows.
+                    std::error_code ec;
+                    std::filesystem::rename (tmp, local, ec);
+                    if (ec)
                         throw pnw::ApiError ("cannot rename to " + local + ": "
-                                             + std::strerror (errno));
+                                             + ec.message ());
                     tmp.clear ();
                     std::cerr << spec.node << "::" << name << " -> " << local
                               << " (" << bytes << " bytes, "
