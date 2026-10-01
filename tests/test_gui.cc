@@ -28,6 +28,11 @@
 #include <QTableView>
 #include <QTemporaryDir>
 #include <QTest>
+#include <QTimer>
+#include <QApplication>
+#include <QDialog>
+
+#include <optional>
 
 namespace {
 
@@ -109,6 +114,51 @@ private slots:
         QCOMPARE (again.visible_nodes (), 2);
         QCOMPARE (QSettings ().value ("nodes/favourites").toStringList (),
                   QStringList { "NODEB" });
+    }
+
+    void decwindows_list ()
+    {
+        gui::decw_reset_apps ();
+        QCOMPARE (gui::decw_apps ().size (), gui::decw_default_apps ().size ());
+
+        // A list of one's own: a built-in one kept, a new one, a name that
+        // clashes with it, and a long one.
+        gui::decw_set_apps ({
+            { "Calculator", {}, "RUN SYS$SYSTEM:DECW$CALC", {} },
+            { "CALC", {}, "RUN DUA0:[TOOLS]MYCALC", {} },
+            { "Monitor everything, please!", {}, "CREATE/TERMINAL=DECTERM/WAIT", {} },
+            { "", {}, "RUN NOTHING", {} },                  // no name: dropped
+            { "Nothing to run", {}, "", {} },               // no command: dropped
+        });
+        QList<gui::DecwApp> apps = gui::decw_apps ();
+        QCOMPARE (apps.size (), 3);
+        QCOMPARE (apps[0].label, QString ("Calculator"));
+        QCOMPARE (apps[0].task, QString ("PNWXCALC"));       // the built-in one's
+        QCOMPARE (apps[0].icon, QString ("accessories-calculator"));
+        QCOMPARE (apps[1].task, QString ("PNWXCALC2"));      // unique
+        QCOMPARE (apps[1].command, QString ("RUN DUA0:[TOOLS]MYCALC"));
+        QCOMPARE (apps[2].task, QString ("PNWXMONITORE"));   // twelve at most
+        for (const gui::DecwApp &a : apps) {
+            QVERIFY (a.task.size () <= 12);
+            QVERIFY (QRegularExpression ("^[A-Z0-9]+$").match (a.task).hasMatch ());
+        }
+        QVERIFY (gui::decw_procedure (apps[1], "29.151").contains ("$ RUN DUA0:[TOOLS]MYCALC\n"));
+        QVERIFY (gui::decw_procedure (apps[1], "29.151").contains ("/NODE=29.151/TRANSPORT=DECNET"));
+
+        gui::decw_reset_apps ();
+        QCOMPARE (gui::decw_apps ().size (), gui::decw_default_apps ().size ());
+
+        // A picture of the Customize dialog, if asked.
+        QString shots = env ("PNW_TEST_SHOTS");
+        if (!shots.isEmpty ()) {
+            QTimer::singleShot (500, [shots] {
+                if (QWidget *w = QApplication::activeModalWidget ()) {
+                    w->grab ().save (shots + "/decwindows-customize.png");
+                    static_cast<QDialog *> (w)->reject ();
+                }
+            });
+            QVERIFY (!gui::decw_customize (nullptr));
+        }
     }
 
     void files ()
@@ -273,9 +323,9 @@ private slots:
         QString image = want == "DECterm" ? "DECW$TERMINAL"
                       : want == "FileView" ? "VUE$MASTER"
                       : "DECW$" + want.toUpper ().left (want == "Calculator" ? 4 : 99);
-        const gui::DecwApp *calc = nullptr;
+        std::optional<gui::DecwApp> calc;
         for (const gui::DecwApp &a : gui::decw_apps ())
-            if (a.label == want) calc = &a;
+            if (a.label == want) calc = a;
         QVERIFY (calc);
 
         bool done = false, ok = false;

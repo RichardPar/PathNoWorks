@@ -4,7 +4,10 @@
 #ifndef PNW_GUI_MAINWINDOW_H
 #define PNW_GUI_MAINWINDOW_H
 
+#include "logindialog.h"
+
 #include <QMainWindow>
+#include <QMap>
 
 class QCheckBox;
 class QLabel;
@@ -61,6 +64,8 @@ private:
     QLabel             *status_;
     QString             system_;
     bool                busy_ = false;
+    // Logins given for DECwindows programs, by node, for this session only.
+    QMap<QString, Login> logins_;
 };
 
 }   // namespace gui

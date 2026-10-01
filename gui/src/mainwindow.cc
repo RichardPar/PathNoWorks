@@ -27,6 +27,7 @@
 #include <QStatusBar>
 #include <QTableView>
 #include <QToolBar>
+#include <QToolButton>
 #include <QVBoxLayout>
 
 #include <map>
@@ -153,9 +154,12 @@ MainWindow::MainWindow (QWidget *parent) : QMainWindow (parent)
             QMessageBox::information (this, "DECwindows", "Pick a node first.");
             return;
         }
+        // The last login used on this node, for this session, to start from.
         LoginDialog d (n, "A login on " + n + " to run " + a.label
-                          + " as. It needs DECwindows installed there.", {}, this);
+                          + " as. It needs DECwindows installed there.",
+                       logins_.value (n.toUpper ()), this);
         if (d.exec () != QDialog::Accepted) return;
+        logins_[n.toUpper ()] = d.login ();
         status_->setText ("Starting " + a.label + " on " + n + "...");
         decw_launch (this, n, d.login (), a, [this] (bool ok, const QString &msg) {
             status_->setText (msg.toHtmlEscaped ());
@@ -163,6 +167,13 @@ MainWindow::MainWindow (QWidget *parent) : QMainWindow (parent)
         });
     });
     nodeMenu->addMenu (decw);
+
+    // And on the toolbar, next to Mail: a button that drops the list down.
+    QAction *decwTool = tb->addAction (decw->icon (), "DECwindows");
+    decwTool->setMenu (decw);
+    decwTool->setToolTip ("Run one of the selected node's DECwindows programs, on this screen");
+    if (auto *b = qobject_cast<QToolButton *> (tb->widgetForAction (decwTool)))
+        b->setPopupMode (QToolButton::InstantPopup);
     nodeMenu->addAction (fav);
     nodeMenu->addSeparator ();
     nodeMenu->addAction (refresh);

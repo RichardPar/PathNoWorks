@@ -106,8 +106,9 @@ out.
 ## DECwindows programs
 
 VMS has a whole desktop's worth of DECwindows programs, and the desktop
-can put them on your screen. In a node's file window, or on a node in
-the main window, open the **DECwindows** menu and pick one:
+can put them on your screen. Select a node in the main window and click
+**DECwindows** on the toolbar (it's also on the Node menu, when you
+right-click a node, and in a node's file window), then pick one:
 
 | | |
 |---|---|
@@ -116,6 +117,16 @@ the main window, open the **DECwindows** menu and pick one:
 | Mail | DECwindows Mail |
 | Notepad, Calculator, Calendar, Cardfiler, Clock | the desk accessories |
 | Paint, Puzzle, Bookreader | the rest |
+
+That's only where the list starts. **Customize...**, at the bottom of the
+menu, lets you add your own programs, take away ones you never use, and
+put them in your order. Each is a name for the menu and the DCL that
+starts it on the node, once its display points here: `RUN
+DUA0:[TOOLS]MYPROG` for one of your own, or a DECterm that runs something
+straight away. **Restore defaults** puts the original list back. The list
+is kept with the desktop's settings and is the same for every node.
+
+![The Customize dialog](images/decwindows-customize.png)
 
 <p>
 <img src="images/vms-fileview.png" alt="VMS FileView on a Linux desktop" width="48%">
@@ -136,7 +147,8 @@ desktop:
    job under your login.
 
 The file window uses the login it already has; from the main window
-you're asked for one. The node needs DECwindows installed, and VMS must
+you're asked for one, and the dialog remembers the last login for each
+node until you quit. The node needs DECwindows installed, and VMS must
 be using the real DECwindows transport rather than the stub some
 versions leave in place; see [pnw-x11](pnw-x11.md#if-vms-says-cant-open-display)
 if every program fails to open its display. The programs close if you

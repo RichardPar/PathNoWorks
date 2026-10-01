@@ -8,12 +8,21 @@
 #include "pnw/nodes.h"
 
 #include <QCoreApplication>
+#include <QDialog>
+#include <QDialogButtonBox>
+#include <QHBoxLayout>
+#include <QHeaderView>
+#include <QLabel>
+#include <QPushButton>
+#include <QTableWidget>
+#include <QVBoxLayout>
 #include <QMenu>
 #include <QProcess>
+#include <QSettings>
 
 namespace gui {
 
-const QList<DecwApp> &decw_apps ()
+const QList<DecwApp> &decw_default_apps ()
 {
     // What DECwindows Motif installs on VMS.  DECterm waits for its window
     // to close; the rest run until they are quit.
@@ -31,6 +40,69 @@ const QList<DecwApp> &decw_apps ()
         { "Bookreader",   "PNWXBOOKS",    "RUN SYS$SYSTEM:DECW$BOOKREADER",        "help-browser" },
     };
     return apps;
+}
+
+namespace {
+
+const char *const SETTING = "decwindows/apps";
+
+// A task name for a program: PNWX and up to eight letters or digits of
+// its name, unique among those taken.  VMS task names stop at twelve.
+QString task_for (const QString &label, const QStringList &taken)
+{
+    QString base;
+    for (QChar c : label.toUpper ())
+        if (c.isLetterOrNumber () && c.unicode () < 128) base += c;
+    base = "PNWX" + base.left (8);
+    if (base == "PNWX") base = "PNWXPROGRAM";
+    QString t = base;
+    for (int n = 2; taken.contains (t); ++n) {
+        QString suffix = QString::number (n);
+        t = base.left (12 - suffix.size ()) + suffix;
+    }
+    return t;
+}
+
+}   // namespace
+
+QList<DecwApp> decw_apps ()
+{
+    QSettings settings;
+    if (!settings.contains (SETTING)) return decw_default_apps ();
+    QList<DecwApp> out;
+    QStringList taken;
+    for (const QVariant &v : settings.value (SETTING).toList ()) {
+        QVariantMap m = v.toMap ();
+        DecwApp a;
+        a.label = m.value ("label").toString ().trimmed ();
+        a.command = m.value ("command").toString ().trimmed ();
+        if (a.label.isEmpty () || a.command.isEmpty ()) continue;
+        a.icon = m.value ("icon").toString ();
+        // The built-in ones keep their task names and icons.
+        for (const DecwApp &d : decw_default_apps ())
+            if (d.label == a.label) {
+                if (!taken.contains (d.task)) a.task = d.task;
+                if (a.icon.isEmpty ()) a.icon = d.icon;
+            }
+        if (a.task.isEmpty ()) a.task = task_for (a.label, taken);
+        if (a.icon.isEmpty ()) a.icon = "application-x-executable";
+        taken << a.task;
+        out << a;
+    }
+    return out;
+}
+
+void decw_set_apps (const QList<DecwApp> &apps)
+{
+    QVariantList list;
+    for (const DecwApp &a : apps)
+        list << QVariantMap { { "label", a.label }, { "command", a.command }, { "icon", a.icon } };
+    QSettings ().setValue (SETTING, list);
+}
+
+void decw_reset_apps ()
+{
+    QSettings ().remove (SETTING);
 }
 
 QString decw_procedure (const DecwApp &app, const QString &display_node)
@@ -183,13 +255,119 @@ void decw_launch (QObject *ctx, const QString &node, const Login &login,
     });
 }
 
+bool decw_customize (QWidget *parent)
+{
+    QDialog d (parent);
+    d.setWindowTitle ("DECwindows programs");
+    d.resize (640, 420);
+    auto *v = new QVBoxLayout (&d);
+    auto *intro = new QLabel (
+        "The programs on the DECwindows menus. Each one is a name for the menu "
+        "and the DCL that starts it on the VMS node, after its display has been "
+        "set to this machine: <tt>RUN SYS$SYSTEM:DECW$CALC</tt>, say, or "
+        "<tt>CREATE/TERMINAL=DECTERM/WAIT</tt>.");
+    intro->setWordWrap (true);
+    v->addWidget (intro);
+
+    auto *row = new QHBoxLayout;
+    auto *table = new QTableWidget (0, 2);
+    table->setHorizontalHeaderLabels ({ "Program", "DCL command" });
+    table->horizontalHeader ()->setStretchLastSection (true);
+    table->verticalHeader ()->hide ();
+    table->setSelectionBehavior (QAbstractItemView::SelectRows);
+    table->setSelectionMode (QAbstractItemView::SingleSelection);
+    row->addWidget (table, 1);
+
+    // Icons ride along unseen: built-in programs keep theirs.
+    auto put = [table] (int r, const DecwApp &a) {
+        auto *name = new QTableWidgetItem (QIcon::fromTheme (a.icon), a.label);
+        name->setData (Qt::UserRole, a.icon);
+        table->setItem (r, 0, name);
+        table->setItem (r, 1, new QTableWidgetItem (a.command));
+    };
+    auto fill = [&] (const QList<DecwApp> &apps) {
+        table->setRowCount (0);
+        for (const DecwApp &a : apps) {
+            int r = table->rowCount ();
+            table->insertRow (r);
+            put (r, a);
+        }
+        table->resizeColumnToContents (0);
+    };
+    fill (decw_apps ());
+
+    auto *buttons = new QVBoxLayout;
+    auto *add = new QPushButton ("Add");
+    auto *remove = new QPushButton ("Remove");
+    auto *upb = new QPushButton ("Move up");
+    auto *downb = new QPushButton ("Move down");
+    auto *defaults = new QPushButton ("Restore defaults");
+    for (QPushButton *b : { add, remove, upb, downb }) buttons->addWidget (b);
+    buttons->addStretch (1);
+    buttons->addWidget (defaults);
+    row->addLayout (buttons);
+    v->addLayout (row, 1);
+
+    auto take = [table] (int r) {
+        DecwApp a;
+        a.label = table->item (r, 0) ? table->item (r, 0)->text ().trimmed () : QString ();
+        a.icon = table->item (r, 0) ? table->item (r, 0)->data (Qt::UserRole).toString () : QString ();
+        a.command = table->item (r, 1) ? table->item (r, 1)->text ().trimmed () : QString ();
+        return a;
+    };
+    auto swap = [&] (int a, int b) {
+        if (a < 0 || b < 0 || a >= table->rowCount () || b >= table->rowCount ()) return;
+        DecwApp x = take (a), y = take (b);
+        put (a, y);
+        put (b, x);
+        table->selectRow (b);
+    };
+    QObject::connect (add, &QPushButton::clicked, &d, [&] {
+        int r = table->rowCount ();
+        table->insertRow (r);
+        put (r, { "New program", {}, "RUN SYS$SYSTEM:", "application-x-executable" });
+        table->selectRow (r);
+        table->editItem (table->item (r, 0));
+    });
+    QObject::connect (remove, &QPushButton::clicked, &d, [&] {
+        int r = table->currentRow ();
+        if (r >= 0) table->removeRow (r);
+    });
+    QObject::connect (upb, &QPushButton::clicked, &d, [&] { int r = table->currentRow (); swap (r, r - 1); });
+    QObject::connect (downb, &QPushButton::clicked, &d, [&] { int r = table->currentRow (); swap (r, r + 1); });
+    QObject::connect (defaults, &QPushButton::clicked, &d, [&] { fill (decw_default_apps ()); });
+
+    auto *box = new QDialogButtonBox (QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
+    QObject::connect (box, &QDialogButtonBox::accepted, &d, &QDialog::accept);
+    QObject::connect (box, &QDialogButtonBox::rejected, &d, &QDialog::reject);
+    v->addWidget (box);
+
+    if (d.exec () != QDialog::Accepted) return false;
+    QList<DecwApp> apps;
+    for (int r = 0; r < table->rowCount (); ++r) {
+        DecwApp a = take (r);
+        if (!a.label.isEmpty () && !a.command.isEmpty ()) apps << a;
+    }
+    decw_set_apps (apps);
+    return true;
+}
+
 QMenu *decw_menu (QWidget *parent, std::function<void (const DecwApp &)> pick)
 {
     auto *m = new QMenu ("DECwindows", parent);
     m->setIcon (QIcon::fromTheme ("preferences-desktop-display"));
     m->setToolTip ("Run one of the node's DECwindows programs, here");
-    for (const DecwApp &a : decw_apps ())
-        m->addAction (QIcon::fromTheme (a.icon), a.label, parent, [pick, a] { pick (a); });
+    // Built each time it opens, so changes to the list show at once.
+    auto build = [m, parent, pick] {
+        m->clear ();
+        for (const DecwApp &a : decw_apps ())
+            m->addAction (QIcon::fromTheme (a.icon), a.label, parent, [pick, a] { pick (a); });
+        m->addSeparator ();
+        m->addAction (QIcon::fromTheme ("configure"), "Customize...", parent,
+                      [parent] { decw_customize (parent); });
+    };
+    build ();
+    QObject::connect (m, &QMenu::aboutToShow, m, build);
     return m;
 }
 

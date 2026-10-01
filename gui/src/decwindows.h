@@ -29,7 +29,13 @@ struct DecwApp {
     QString icon;           // a theme icon name
 };
 
-const QList<DecwApp> &decw_apps ();
+// The programs on the DECwindows menus: the user's list from the
+// settings, or the built-in one until they change it.  Task names are made
+// from the labels, unique and at most twelve characters.
+QList<DecwApp> decw_apps ();
+const QList<DecwApp> &decw_default_apps ();
+void decw_set_apps (const QList<DecwApp> &apps);
+void decw_reset_apps ();
 
 // The command procedure that shows app on display_node (an address).
 QString decw_procedure (const DecwApp &app, const QString &display_node);
@@ -44,7 +50,11 @@ void decw_launch (QObject *ctx, const QString &node, const Login &login,
                   const DecwApp &app,
                   std::function<void (bool, const QString &)> done);
 
-// A menu of the programs; pick is called with the one chosen.
+// Edit the list in a dialog; true if it was changed.
+bool decw_customize (QWidget *parent);
+
+// A menu of the programs, ending in Customize...; pick is called with the
+// one chosen.
 QMenu *decw_menu (QWidget *parent, std::function<void (const DecwApp &)> pick);
 
 }   // namespace gui
