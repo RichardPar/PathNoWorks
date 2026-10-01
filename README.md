@@ -19,14 +19,55 @@ The tools don't touch the network at all; they ask decnetd to do it for
 them over its API socket, so none of them needs root. The one rebel is
 `pnw-lat`: LAT isn't DECnet, so it goes straight onto the LAN by itself.
 
+Here's how the pieces fit together:
+
 ```
-pnw-ncp  pnw-sethost  pnw-mail  pnw-mop  pnw-dir  pnw-type  pnw-copy  pnw-delete  pnw-rename  pnw-fs
-        |  JSON over a Unix socket (PyDECnet's API)          pnw-lat
-        |                                                    |  LAT, straight on the LAN
-decnetd (cppdecnet): routing, NSP, session control, MOP, NICE, FAL
-        |  Ethernet (pcap/TAP), Multinet, DDCMP
-DECnet: VMS, RSX, PyDECnet, HECnet
+┌────────────────────────── your Linux machine ──────────────────────────┐
+│                                                                        │
+│   pathnoworks        pnw-ncp      pnw-dir  pnw-type  pnw-copy          │
+│   (the Qt desktop)   pnw-sethost  pnw-delete  pnw-rename               │
+│                      pnw-mail     pnw-mop     pnw-fs (FUSE)            │
+│          │                │                                            │
+│          └──────┬─────────┘                                            │
+│                 │  the pnwclient library (+ pnwdap, pnwcterm, ...)     │
+│                 │                                                      │
+│                 ▼  JSON lines on a Unix socket                         │
+│         /tmp/decnetapi.sock   (decnetd's "api" line)                   │
+│                 │                                        pnw-lat       │
+│ ┌────────────── decnetd (cppdecnet) ───────────────┐        │          │
+│ │ session control   objects: NML 19, MIRROR 25,    │        ▼          │
+│ │                   FAL 17 (dnfal), your own...    │   pnw-latsock     │
+│ │ NSP               logical links                  │  (CAP_NET_RAW)    │
+│ │ routing           endnode or router              │        │          │
+│ │ MOP               on --mop Ethernet circuits     │        │          │
+│ │ circuits          Ethernet (pcap/TAP),           │        │          │
+│ │                   Multinet (TCP), DDCMP          │        │          │
+│ └────────────────────────┬─────────────────────────┘        │          │
+└──────────────────────────┼──────────────────────────────────┼──────────┘
+                           │                                  │
+                    DECnet Phase IV                      LAT (0x6004)
+              VMS · RSX · PyDECnet · HECnet       terminal hosts on the LAN
 ```
+
+Every tool except `pnw-lat` is a client of decnetd. It opens the socket,
+asks for a logical link to an object on some node, and then exchanges
+data over that link. decnetd does the DECnet part (routing, NSP, session
+control) and owns the circuits to the outside world. MOP is a little
+different, since it isn't a logical link at all: `pnw-mop` asks decnetd,
+and decnetd speaks MOP itself on its Ethernet circuits.
+
+| Tool | Talks to, through decnetd | Protocol |
+|---|---|---|
+| `pnw-ncp` | NML (object 19), MIRROR (object 25) | NICE, loopback |
+| file tools, `pnw-fs`, the desktop's file windows | FAL (object 17) | DAP |
+| `pnw-sethost`, the desktop's Terminal | CTERM (object 42) | CTERM |
+| `pnw-mail`, the desktop's Mail | MAIL (object 27); `listen` takes object 27 here | Mail-11 |
+| `pnw-mop` | stations on decnetd's `--mop` Ethernet circuit | MOP |
+| `pnw-lat` | nothing: LAT hosts directly, through `pnw-latsock` | LAT |
+
+The socket is the only door, so it's also the only lock: whoever can open
+it can act as this DECnet node. Set its mode accordingly (`--mode 600` or
+`660`).
 
 ## What's in the box
 
