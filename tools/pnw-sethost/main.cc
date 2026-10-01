@@ -77,6 +77,8 @@ void usage ()
         "  --8bit      pass 8-bit characters and controls straight through;\n"
         "              by default they are translated for a UTF-8 terminal\n"
         "              when the locale is UTF-8\n"
+        "  --wait      if the connection fails, wait for Enter before exiting,\n"
+        "              so a terminal window opened for this stays to show why\n"
         "  Ctrl-] q    end the session from this end\n";
 }
 
@@ -86,13 +88,14 @@ int main (int argc, char **argv)
 {
     std::string sock = pnw::Api::default_path ();
     pnw::Cterm::Terminal term;
-    bool raw8 = false;
+    bool raw8 = false, wait_on_error = false;
     std::string node;
     for (int i = 1; i < argc; ++i) {
         std::string a = argv[i];
         if (a == "-s" && i + 1 < argc)        sock = argv[++i];
         else if (a == "-t" && i + 1 < argc)   term.type = argv[++i];
         else if (a == "--8bit")               raw8 = true;
+        else if (a == "--wait")               wait_on_error = true;
         else if (a == "-h" || a == "--help")  { usage (); return 0; }
         else if (node.empty ())               node = a;
         else                                  { usage (); return 2; }
@@ -112,11 +115,16 @@ int main (int argc, char **argv)
         o.dest = node;
         o.object = "42";
         link = api->connect (o);
-    } catch (const pnw::Rejected &e) {
-        std::cerr << "pnw-sethost: " << node << ": " << e.what () << "\n";
-        return 1;
     } catch (const std::exception &e) {
-        std::cerr << "pnw-sethost: " << e.what () << "\n";
+        if (dynamic_cast<const pnw::Rejected *> (&e))
+            std::cerr << "pnw-sethost: " << node << ": " << e.what () << "\n";
+        else
+            std::cerr << "pnw-sethost: " << e.what () << "\n";
+        if (wait_on_error) {
+            std::cerr << "Press Enter to close." << std::flush;
+            std::string line;
+            std::getline (std::cin, line);
+        }
         return 1;
     }
 

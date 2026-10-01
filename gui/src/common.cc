@@ -162,8 +162,9 @@ bool open_sethost (const QString &node, QString *error)
         if (error) *error = "pnw-sethost not found";
         return false;
     }
+    // --wait: should it fail to connect, the window stays to say why.
     return open_terminal (node + " - SET HOST",
-                          { tool, "-s", api_socket (), node }, error);
+                          { tool, "--wait", "-s", api_socket (), node }, error);
 }
 
 unsigned reject_reason (const std::exception &e)

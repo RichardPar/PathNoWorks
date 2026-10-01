@@ -21,8 +21,8 @@ PathNoWorks desktop does that itself when it starts pnw-x11.
 
 On Windows, for VcXsrv: the server's fonts are read from its own font
 directories rather than asked of it (VcXsrv has no xlsfonts or xset), DIR
-defaults to %LOCALAPPDATA%\\PathNoWorks\\fonts\\decwindows, and the
-PathNoWorks desktop adds it to the font path when it starts VcXsrv.
+defaults to the same place in the user's profile, and the PathNoWorks
+desktop adds it to the font path when it starts VcXsrv.
 
     py decw-font-aliases.py FONTS
 """
@@ -186,12 +186,10 @@ def main ():
     if not args:
         print (__doc__.strip (), file=sys.stderr)
         return 2
-    if os.name == "nt":
-        default = os.path.join (os.environ.get ("LOCALAPPDATA", os.path.expanduser ("~")),
-                                "PathNoWorks", "fonts", "decwindows")
-    else:
-        default = os.path.expanduser ("~/.local/share/fonts/decwindows")
-    out = args[1] if len (args) > 1 else default
+    # The same place on Windows, in the user's profile.  Not AppData: the
+    # Microsoft Store's Python writes there into a private copy that other
+    # programs never see.
+    out = args[1] if len (args) > 1 else os.path.expanduser ("~/.local/share/fonts/decwindows")
 
     names = decw_names (args[0])
     if not names:
@@ -225,9 +223,10 @@ def main ():
             missing.append (n)
 
     os.makedirs (out, exist_ok=True)
-    with open (os.path.join (out, "fonts.dir"), "w") as f:
+    # LF line ends on Windows too: they are read by an X server.
+    with open (os.path.join (out, "fonts.dir"), "w", newline="\n") as f:
         f.write ("0\n")
-    with open (os.path.join (out, "fonts.alias"), "w") as f:
+    with open (os.path.join (out, "fonts.alias"), "w", newline="\n") as f:
         f.write ("! DECwindows font names, given to this X server's nearest fonts.\n")
         f.write ("! Made by PathNoWorks decw-font-aliases.py; safe to remake.\n")
         f.write ("\n".join (lines) + "\n")
