@@ -34,29 +34,33 @@ their behalf, over a Unix socket. So decnetd's configuration needs an
 `api` line:
 
 ```
-routing 29.150 --type l1router
+routing 29.151 --type endnode
+node 29.151 PNW
 node 29.150 CPPNOD
-circuit eth-0 Ethernet pcap:eth0 --t3 10
-api /run/decnet/api.sock --mode 660
+circuit mul-0 Multinet 192.168.10.151:7100:connect --t3 15
+api /tmp/decnetapi.sock --mode 600
 ```
+
+That's a desktop's usual setup: an **endnode**. It has one circuit, to a
+router (CPPNOD here, reached over Multinet, which is DECnet carried in
+TCP, the way HECnet nodes link up), and it leaves the rest of the network
+to that router. Put in your own node's address and name and your
+router's; on HECnet, your area's coordinator gives you an address. The
+router needs a matching `circuit … :listen` line for you.
 
 Think about the mode for a moment. Anyone who can open that socket can
-make and accept DECnet connections *as this node*. With `--mode 660`, put
-yourself in the socket's group and keep everyone else out.
+make and accept DECnet connections *as this node*. `--mode 600` keeps it
+to the user decnetd runs as; use `660` and a group to share it.
 
-Leave the path off and the socket goes to `$DECNETAPI`, or failing that
-`/tmp/decnetapi.sock`. The tools look in the same places, or you can hand
-them `-s path`. To save some typing:
+`/tmp/decnetapi.sock` is where every tool looks by default, so nothing
+else needs setting. Put the socket elsewhere and tell the tools with
+`$DECNETAPI` or `-s path`.
 
-```sh
-export DECNETAPI=/run/decnet/api.sock
-```
-
-There's a complete example to start from in
-[`samples/decnetd.conf`](../samples/decnetd.conf): an endnode with a
-Multinet link to a router, and the socket at `/tmp/decnetapi.sock`, so
-the tools find it without being told. Copy it, put in your own addresses
-and names, and start decnetd as the cppdecnet README describes.
+The same configuration, with comments and the usual additions (DECnet
+straight on an Ethernet, serving files with dnfal), is in
+[`samples/decnetd.conf`](../samples/decnetd.conf). Copy it, put in your
+own addresses and names, and start decnetd as the cppdecnet README
+describes.
 
 ## 3. Is anybody out there?
 

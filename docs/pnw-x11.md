@@ -114,6 +114,46 @@ A VAX with no screen of its own needs DECwindows base support (from
 `DECW$TAILOR`) and DECwindows Motif. It runs no X server; your Linux
 machine is the display.
 
+### DEC's fonts
+
+DECwindows programs ask for DEC's fonts by name: DECterm for
+`-DEC-Terminal-…`, menus for `-Bigelow & Holmes-Menu-…`, and plenty of
+others. A Linux X server has none of them, so without help the programs
+take whatever they're given: italic prompts in DECterm, odd-sized menus.
+
+DEC's font files can't be used directly. They're in DECwindows' own
+compiled `.DECW$FONT` format, which X.Org doesn't read. What does work is
+giving every DEC name to the nearest font your X server already has.
+`tools/pnw-x11/decw-font-aliases.py` does that. It reads the names out of
+DEC's font files, matches each one on face, weight, slant and size
+(scaling an outline font where that's closer than a bitmap), and writes a
+`fonts.alias`:
+
+```sh
+decw-font-aliases.py ~/vms-fonts --install
+```
+
+`~/vms-fonts` is a copy of the `.DECW$FONT` files. They're on the VMS CD
+in the DECwindows savesets `DECW062.E` and `F` under
+`[SYS0.SYSFONT.DECW...]`, or on a VMS system with DECwindows fonts
+installed in `SYS$COMMON:[SYSFONT.DECW...]`. Copy them with `pnw-copy
+--binary`. The aliases go in `~/.local/share/fonts/decwindows`, and
+`--install` adds that to the X server's font path for this session. The
+PathNoWorks desktop adds it every time it starts the bridge. If you run
+`pnw-x11 serve` yourself, add it after logging in:
+
+```sh
+xset +fp ~/.local/share/fonts/decwindows/
+```
+
+Fonts in DEC's private character sets (DECtech, DECmath, the
+presentation bullets) get no stand-in: a Latin-1 font would show the
+wrong symbols in their place, such as an `Ö` on the calculator's
+square-root key. Those few characters stay blank, as before.
+
+DEC's fonts aren't free. The script reads only their names, and nothing
+of theirs goes into PathNoWorks.
+
 ## Messages
 
 ```

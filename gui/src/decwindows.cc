@@ -8,6 +8,8 @@
 #include "pnw/nodes.h"
 
 #include <QCoreApplication>
+#include <QDir>
+#include <QFile>
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QHBoxLayout>
@@ -148,6 +150,18 @@ bool decw_bridge (const QString &node, QString *error)
         bridge->terminate ();
         bridge->waitForFinished (3000);
         delete bridge;
+    }
+    // DEC's font names, if decw-font-aliases.py has made them: the font
+    // path lasts only as long as the X session, so add it each time.
+    QString fonts = QDir::home ().filePath (".local/share/fonts/decwindows");
+    if (QFile::exists (fonts + "/fonts.alias")) {
+        QProcess q;
+        q.start ("xset", { "q" });
+        q.waitForFinished (3000);
+        if (!QString::fromLocal8Bit (q.readAllStandardOutput ()).contains (fonts)) {
+            QProcess::execute ("xset", { "+fp", fonts + "/" });
+            QProcess::execute ("xset", { "fp", "rehash" });
+        }
     }
     bridge = new QProcess (QCoreApplication::instance ());
     bridge->setProcessChannelMode (QProcess::MergedChannels);

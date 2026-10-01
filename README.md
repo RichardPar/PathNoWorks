@@ -106,7 +106,8 @@ building it to copying your first file.
 ## A quick look
 
 ```sh
-export DECNETAPI=/run/decnet/api.sock        # decnetd's "api" socket
+# decnetd running as an endnode, its "api" socket at /tmp/decnetapi.sock,
+# where the tools look by default (see samples/decnetd.conf)
 
 pnw-ncp show known nodes
 pnw-ncp tell MIM show executor characteristics

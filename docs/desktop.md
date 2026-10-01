@@ -159,9 +159,16 @@ quit the desktop, since their display goes with it.
 What works, tried against OpenVMS VAX 6.2 with DECwindows Motif 1.2-3:
 DECterm, FileView, the Calculator, the Clock and Puzzle. DECterm gives
 you a DCL session of its own in the window; its controller and session
-are separate VMS processes, and closing the window ends them. Missing DEC fonts mean
-some labels come out in a substitute font, or not at all (the
-calculator's square root key). Paint crashes on start: it expects the
+are separate VMS processes, and closing the window ends them.
+
+DEC's fonts aren't on a Linux X server, so programs make do with
+substitutes. For much better ones, give DEC's font names to your own
+fonts with [`decw-font-aliases.py`](pnw-x11.md#decs-fonts); the desktop
+puts them on the X server's font path whenever it starts the bridge. A
+few characters from DEC's own character sets (the calculator's
+square-root key) stay blank either way.
+
+Paint crashes on start: it expects the
 8-bit colour displays of its day, not a modern 24-bit one. The
 procedures are left in your login directory, ready for next time; delete
 them whenever you like.
