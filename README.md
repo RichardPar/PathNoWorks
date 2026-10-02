@@ -103,6 +103,65 @@ README.
 New here? [Getting started](docs/getting-started.md) takes you from
 building it to copying your first file.
 
+## Requirements
+
+PathNoWorks is no use on its own: it needs a DECnet network to join, and
+nodes on it worth talking to. What it takes to build is under
+[Building it](#building-it); this is what it takes to *use*.
+
+### A place on the network
+
+- **A DECnet address and name for this machine.** The address is
+  `area.node`, like `29.151`: area 1 to 63, node 1 to 1023. The name is
+  up to six letters and digits, like `PNW`. On HECnet, your area's
+  coordinator gives you an address (see the
+  [HECnet page](http://mim.softjar.se/)). On a network of your own, pick
+  any that nobody else is using. Two nodes with one address will confuse
+  every router that sees them.
+- **A way in.** One of:
+  - **A Multinet peer**, which is what most people use: a DECnet router
+    that will link to you over TCP. You need its IP address or host name,
+    and its port, such as `192.168.10.151:7100`. Its owner adds a circuit
+    for you, with your IP address in it, as `circuit mul-1 Multinet
+    <your IP>:7100:listen`; your end connects to theirs. (It can be the
+    other way round, but the end that listens must be reachable through
+    firewalls and NAT.) On HECnet, ask the owner of the node you'll link
+    to. Multinet runs over anything that carries TCP: Wi-Fi, a VPN, the
+    internet.
+  - **Ethernet**, straight onto a LAN that already has DECnet on it (a
+    VAX or PDP-11, real or in SIMH, or a router). It has to be wired,
+    since Wi-Fi drops DECnet's frames, and decnetd needs libpcap and the
+    right to send raw frames. Linux only.
+- **decnetd running**, with an `api` line for the tools.
+  `tools/install-decnetd.sh` in cppdecnet asks for all of the above and
+  sets it up as a service; on Windows, the installer does it.
+
+### On the nodes you talk to
+
+Each feature needs something at the other end:
+
+| To use | the other node needs |
+|---|---|
+| Files, the network drive | a file server, FAL (object 17), and usually a login |
+| The node list, `pnw-ncp` | network management, NML (object 19) |
+| Terminal | CTERM (object 42), as VMS and RSX have, and a login |
+| Mail | Mail-11 (object 27) |
+| DECwindows programs | VMS with DECwindows Motif installed, and a login |
+| New folder and deleting folders on VMS | a login: they run as DCL |
+| LAT terminals | a LAT service on your own LAN (VMS with LAT started, for one) |
+| MOP | stations on your Ethernet LAN; decnetd on that LAN with `--mop` |
+
+### On this machine
+
+| | Linux | Windows |
+|---|---|---|
+| The DECnet node | decnetd: `install-decnetd.sh` makes it a service | decnetd, which the installer sets to start when you log in |
+| An X server, for DECwindows programs | the desktop's own; tried with X.Org | [VcXsrv](https://github.com/marchaesen/vcxsrv); the desktop starts it |
+| Terminal windows | xterm | Windows Terminal, or a console window |
+| The network drive (Mount, `pnw-fs`) | FUSE 3 | [WinFsp](https://winfsp.dev/) |
+| LAT terminals | wired Ethernet; `pnw-latsock` with `CAP_NET_RAW` | not available |
+| Ethernet circuits and MOP | libpcap and a wired interface | not available: Multinet only |
+
 ## A quick look
 
 ```sh
