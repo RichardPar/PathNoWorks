@@ -367,6 +367,29 @@ Prefer your home directory? `cmake --install build --prefix ~/.local`
 installs PathNoWorks without `sudo`. Make sure `~/.local/bin` is on your
 `PATH`.
 
+### A Debian package
+
+On Debian, Ubuntu, Mint and their relatives you can build a `.deb`
+instead, with everything in it: the tools, the desktop and its menu
+entry, and cppdecnet's decnetd, dnfal and dnping. It needs `dpkg-dev` as
+well as what building needs.
+
+```sh
+packaging/debian/build-deb.sh            # writes Linux/pathnoworks_<version>_<arch>.deb
+sudo apt install ./Linux/pathnoworks_0.1.0_amd64.deb
+decnetd-setup                            # as yourself: make this machine a node
+```
+
+Installing it doesn't put anything on the network. `decnetd-setup` is
+cppdecnet's `install-decnetd.sh` under another name. It asks for the
+node's name and address, its Multinet peer and the rest, and runs
+decnetd as a systemd service. The package gives `pnw-latsock` its raw
+socket right as it installs, restarts decnetd when you upgrade, and stops
+the service if you remove it; your configuration in `/etc/decnet` stays.
+
+A package depends on the library versions of the system it was built
+on, so build it on the oldest release you want it to install on.
+
 ### First run
 
 [`samples/decnetd.conf`](samples/decnetd.conf) is a working endnode
