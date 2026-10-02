@@ -536,7 +536,7 @@ QMenu *decw_menu (QWidget *parent, std::function<void (const DecwApp &)> pick)
         for (const DecwApp &a : decw_apps ())
             m->addAction (QIcon::fromTheme (a.icon), a.label, parent, [pick, a] { pick (a); });
         m->addSeparator ();
-        m->addAction (QIcon::fromTheme ("configure"), "Customize...", parent,
+        m->addAction (QIcon::fromTheme ("configure"), "Customise...", parent,
                       [parent] { decw_customize (parent); });
     };
     build ();
