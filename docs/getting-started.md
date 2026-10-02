@@ -8,6 +8,30 @@ addresses (`MIM`, `1.13`, that sort of thing) aren't a complete mystery.
 If they are, the HECnet folks are friendly, and this will make more sense
 after an evening of reading.
 
+## On Windows
+
+There's an installer, `PathNoWorks-<version>-setup.exe`. It installs
+PathNoWorks and cppdecnet's decnetd for you alone, without administrator
+rights, and its wizard asks what the Linux steps below set up by hand:
+the node's name and address, the Multinet link to your router, whether
+to stay off the network until PathNoWorks is used, and HECnet's node
+names. decnetd then runs from a Task Scheduler task when you log in, and
+the Start menu has the desktop, the node's configuration and log, and a
+way to restart decnetd. Remove it from Settings > Apps; your node's
+configuration, in `%LOCALAPPDATA%\cppdecnet`, stays.
+
+To build the installer, with Visual Studio 2022's C++ build tools, Qt 6
+for MSVC 2022 and Inno Setup 6 installed:
+
+```
+powershell -ExecutionPolicy Bypass -File packaging\windows\build-installer.ps1
+```
+
+It lands in `Windows\`. For DECwindows programs you'll also want an X
+server; see [pnw-x11](pnw-x11.md#on-windows-vcxsrv). cppdecnet also has
+`tools\install-decnetd.cmd`, the console counterpart of
+`install-decnetd.sh`, for decnetd on its own.
+
 ## 1. Build cppdecnet and PathNoWorks
 
 PathNoWorks expects cppdecnet to live next door, at `../Decnet/cppdecnet`.

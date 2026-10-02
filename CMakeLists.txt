@@ -96,5 +96,10 @@ add_subdirectory (tools/pnw-mop)
 add_subdirectory (tools/pnw-x11)
 add_subdirectory (gui)
 
-enable_testing ()
-add_subdirectory (tests)
+# The tests, which want a Unix sh for their smoke scripts (Git's, on
+# Windows).  A packaging build turns them off.
+option (PNW_TESTS "Build the tests" ON)
+if (PNW_TESTS)
+    enable_testing ()
+    add_subdirectory (tests)
+endif ()
