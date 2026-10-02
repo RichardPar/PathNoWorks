@@ -538,6 +538,24 @@ void DapSession::erase (const std::string &path)
     expect_complete ("ERASE");
 }
 
+void DapSession::make_directory (const std::string &dir)
+{
+    Access a;
+    a.accfunc = Access::create;
+    a.filespec = dir;
+    send (a);
+    expect_complete ("CREATE DIRECTORY");
+}
+
+void DapSession::remove_directory (const std::string &dir)
+{
+    Access a;
+    a.accfunc = Access::erase;
+    a.filespec = dir;
+    send (a);
+    expect_complete ("REMOVE DIRECTORY");
+}
+
 void DapSession::rename (const std::string &from, const std::string &to)
 {
     Access a;
@@ -549,6 +567,71 @@ void DapSession::rename (const std::string &from, const std::string &to)
     n.namespec = to;
     send (n);
     expect_complete ("RENAME");
+}
+
+bool DapError::not_found () const noexcept
+{
+    // RMS FNF and NMF: "file not found", "no more files".
+    return status_.miccode == 062 || status_.miccode == 0307;
+}
+
+std::vector<std::string> run_dcl (Api &api, const RemoteSpec &spec, bool proxy,
+                                  const std::string &task,
+                                  const std::string &commands)
+{
+    std::string file = task + ".COM";
+    std::string text =
+        "$ ! " + task + " for PathNoWorks: run by a DECnet connection to task " + task
+        + ".\n$ ! Deleted when it has run; safe to delete if it is left.\n"
+        "$ SET NOON\n"
+        "$ OPEN/READ/WRITE PNW$NET SYS$NET\n"
+        + commands
+        + "$ CLOSE PNW$NET\n"
+          "$ EXIT\n";
+    {
+        DapSession s (api, spec, proxy);
+        try { s.erase (file + ";*"); } catch (const std::exception &) {}
+    }
+    {
+        DapSession s (api, spec, proxy);
+        bool sent = false;
+        s.put (file, true, [&] {
+            if (sent) return Bytes ();
+            sent = true;
+            return Bytes (text.begin (), text.end ());
+        });
+    }
+
+    ConnectOptions o;
+    o.dest = spec.node;
+    o.object = task;
+    o.username = spec.user;
+    o.password = spec.password;
+    o.account = spec.account;
+    o.proxy = proxy && spec.user.empty ();
+    std::vector<std::string> lines;
+    {
+        auto link = api.connect (o);
+        try {
+            for (;;) {
+                auto m = link->recv (std::chrono::seconds (60));
+                if (!m) throw ApiError ("no answer from task " + task + " on " + spec.node);
+                lines.emplace_back (m->begin (), m->end ());
+            }
+        } catch (const ApiError &) {
+            // The procedure closing the link is the end of its answer;
+            // anything else is a failure.
+            if (link->open () || link->reason () != 0) {
+                DapSession s (api, spec, proxy);
+                try { s.erase (file + ";*"); } catch (const std::exception &) {}
+                throw;
+            }
+        }
+    }
+
+    DapSession s (api, spec, proxy);
+    try { s.erase (file + ";*"); } catch (const std::exception &) {}
+    return lines;
 }
 
 }   // namespace pnw

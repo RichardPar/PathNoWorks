@@ -79,6 +79,17 @@ A node's files open in a window of their own:
   local files. That also means you can drag from one node's window to
   another's, and the files go node to node by way of your machine.
 - **Rename** (F2) and **Delete** (Del) act on the selected files.
+  **Delete** takes folders too, but only empty ones: delete what's in a
+  folder first.
+- **New folder** (Ctrl+Shift+N) makes a folder in the directory shown.
+  On VMS it's `CREATE/DIRECTORY`, and deleting one is `SET PROTECTION`
+  and `DELETE` on its `.DIR` file. The desktop runs these as DCL under
+  your login, through a little `PNWDIR.COM` that deletes itself
+  afterwards, because VMS's file server can't do either: it can't make a
+  directory, and it will delete a directory file with files still in it,
+  leaving them lost on the disk. So the desktop looks first and won't
+  delete a folder that has anything in it. dnfal makes and removes
+  folders itself. Other servers (RSX, PyDECnet's FAL) may refuse.
 - **Mount** mounts the directory shown at `~/DECnet/NODE` with `pnw-fs`,
   read and write, and opens it in your file manager: your network drive,
   one click away. **Unmount** undoes that.
@@ -230,7 +241,7 @@ QT_QPA_PLATFORM=offscreen PNW_TEST_SOCKET=/tmp/decnetapi.sock \
 - Files dragged out are fetched whole before the drag starts, so
   dragging a big file takes as long as copying it. The copies are kept in
   a temporary folder until the window closes.
-- Download, Delete and dragging work on files only, not whole
-  directories.
+- Download and dragging work on files only, not whole directories, and
+  Delete removes only empty folders.
 - There are no LAT terminals or MOP in the desktop yet; `pnw-lat` and
   `pnw-mop` are waiting on the command line.

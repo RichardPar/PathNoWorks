@@ -29,6 +29,7 @@
 #include <QPlainTextEdit>
 #include <QProcess>
 #include <QProgressDialog>
+#include <QRegularExpression>
 #include <QStandardPaths>
 #include <QStatusBar>
 #include <QToolBar>
@@ -200,6 +201,10 @@ FileWindow::FileWindow (const QString &node, const Login &login,
                                                 QIcon::fromTheme ("document-open")),
                               "Upload...", this, &FileWindow::ask_upload);
     upload_->setToolTip ("Copy files from this computer to the directory shown");
+    newdir_ = ops->addAction (QIcon::fromTheme ("folder-new"), "New folder...",
+                              this, &FileWindow::ask_new_folder);
+    newdir_->setShortcut (QKeySequence ("Ctrl+Shift+N"));
+    newdir_->setToolTip ("Make a directory in the one shown");
     rename_ = ops->addAction (QIcon::fromTheme ("edit-rename"), "Rename...",
                               this, &FileWindow::ask_rename);
     rename_->setShortcut (QKeySequence ("F2"));
@@ -292,6 +297,31 @@ std::string FileWindow::file_spec (const QString &name, const QString &subdir) c
     return pnw::RemoteTree (ss (base_)).spec (join_local (p));
 }
 
+std::string FileWindow::subdir_listing (const QString &name) const
+{
+    return pnw::RemoteTree (ss (base_)).listing (join_local (QStringList (cur_) << name));
+}
+
+std::string FileWindow::subdir_spec (const QString &name) const
+{
+    // The listing without its wildcard: "[.SUB]" or "pub/sub/".
+    std::string l = subdir_listing (name);
+    std::string w = vms_ ? "*.*;0" : "*";
+    if (l.size () >= w.size () && l.compare (l.size () - w.size (), w.size (), w) == 0)
+        l.erase (l.size () - w.size ());
+    return l;
+}
+
+bool FileWindow::is_dir (const QString &name) const
+{
+    for (int i = 0; i < list_->topLevelItemCount (); ++i) {
+        QTreeWidgetItem *it = list_->topLevelItem (i);
+        if (it->data (0, Qt::UserRole).toString () == name)
+            return it->data (0, Qt::UserRole + 1).toBool ();
+    }
+    return false;
+}
+
 QString FileWindow::dir_spec () const
 {
     std::string l = listing_spec ();
@@ -322,9 +352,9 @@ void FileWindow::set_busy (bool on, const QString &what)
 void FileWindow::update_actions ()
 {
     bool files = !selected (true).isEmpty ();
-    for (QAction *a : { up_, refresh_, upload_, mount_ }) a->setEnabled (!busy_);
+    for (QAction *a : { up_, refresh_, upload_, newdir_, mount_ }) a->setEnabled (!busy_);
     download_->setEnabled (!busy_ && files);
-    delete_->setEnabled (!busy_ && files);
+    delete_->setEnabled (!busy_ && !selected (false).isEmpty ());
     rename_->setEnabled (!busy_ && selected (true).size () == 1);
     mount_->setText (mounted () ? "Unmount" : "Mount");
     // DECwindows is VMS's; a Unix FAL has none.
@@ -366,7 +396,13 @@ void FileWindow::run (const QString &what, Op op, bool relist)
         if (!relist) return r;
         if (known) {
             pnw::DapSession s (api, spec, proxy);
-            r.entries = s.directory (pnw::RemoteTree (base).listing (local));
+            try {
+                r.entries = s.directory (pnw::RemoteTree (base).listing (local));
+            } catch (const pnw::DapError &e) {
+                // VMS answers an empty directory with "file not found".
+                if (!e.not_found ()) throw;
+                r.entries.clear ();
+            }
             r.listed = true;
             return r;
         }
@@ -637,14 +673,104 @@ void FileWindow::upload (const QStringList &local_paths, const QString &into)
     });
 }
 
+namespace {
+
+// What a DCL procedure run by run_dcl says: its status, then its message.
+void dcl_result (const std::vector<std::string> &lines, const std::string &what)
+{
+    if (lines.empty ()) throw pnw::ApiError (what + ": no answer from DCL");
+    // $STATUS comes as "%X10911293"; a status of our own as a number.
+    const std::string &st = lines[0];
+    unsigned long status = st.rfind ("%X", 0) == 0
+        ? std::strtoul (st.c_str () + 2, nullptr, 16)
+        : std::strtoul (st.c_str (), nullptr, 10);
+    std::string msg = lines.size () > 1 ? lines[1] : "status " + lines[0];
+    if (!(status & 1)) throw pnw::ApiError (what + ": " + msg);
+}
+
+// The DCL that makes or removes a VMS directory.  A directory file VMS's
+// FAL will delete only with delete access, which CREATE/DIRECTORY does not
+// give the owner, and it does so even when the directory is not empty --
+// leaving its files lost -- so this is DCL's job, with a look first.
+std::string dcl_report ()
+{
+    return "$ S = $STATUS\n"
+           "$ WRITE PNW$NET F$STRING (S)\n"
+           "$ WRITE PNW$NET F$MESSAGE (S)\n";
+}
+
+}   // namespace
+
 void FileWindow::remove (const QStringList &names)
 {
-    std::vector<std::string> specs;
-    for (const QString &n : names) specs.push_back (file_spec (n));
-    run (QString ("Deleting %1 file(s)").arg (specs.size ()),
-         [specs] (pnw::Api &, pnw::DapSession &s, Reply &r) {
-        for (const std::string &p : specs) s.erase (p);
-        r.message = "Deleted " + std::to_string (specs.size ()) + " file(s)";
+    struct Item { std::string name, spec, listing; bool dir; };
+    std::vector<Item> items;
+    int dirs = 0;
+    for (const QString &n : names) {
+        bool d = is_dir (n);
+        dirs += d;
+        items.push_back ({ ss (n),
+                           d ? (vms_ ? file_spec (n + ".DIR;1") : subdir_spec (n))
+                             : file_spec (n),
+                           d ? subdir_listing (n) : std::string (), d });
+    }
+    bool vms = vms_;
+    pnw::RemoteSpec spec = this->spec ();
+    bool proxy = login_.proxy;
+    int files = static_cast<int> (items.size ()) - dirs;
+    QString what = QString ("Deleting %1").arg (dirs && files ? "files and folders"
+                                               : dirs ? "folders" : "files");
+    run (what, [=] (pnw::Api &api, pnw::DapSession &s, Reply &r) {
+        for (const Item &i : items) if (!i.dir) s.erase (i.spec);
+        for (const Item &i : items) {
+            if (!i.dir) continue;
+            // Never a directory with anything in it.
+            std::vector<pnw::DirEntry> inside;
+            try {
+                pnw::DapSession look (api, spec, proxy);
+                inside = look.directory (i.listing);
+            } catch (const pnw::DapError &e) {
+                if (!e.not_found ()) throw;
+            }
+            if (!inside.empty ())
+                throw pnw::ApiError (i.name + " is not empty; delete what is in it first");
+            if (!vms) {
+                pnw::DapSession rm (api, spec, proxy);
+                rm.remove_directory (i.spec);
+                continue;
+            }
+            std::string search = i.listing.substr (0, i.listing.size () - 1) + "*";
+            dcl_result (pnw::run_dcl (api, spec, proxy, "PNWDIR",
+                "$ IF F$SEARCH (\"" + search + "\") .NES. \"\"\n"
+                "$ THEN\n"
+                "$   WRITE PNW$NET \"0\"\n"
+                "$   WRITE PNW$NET \"" + i.name + " is not empty\"\n"
+                "$ ELSE\n"
+                "$   SET PROTECTION=O:RWED " + i.spec + "\n"
+                "$   DELETE " + i.spec + "\n"
+                + dcl_report () +
+                "$ ENDIF\n"), "Deleting " + i.name);
+        }
+        r.message = "Deleted " + std::to_string (items.size ())
+                  + (items.size () == 1 ? " item" : " items");
+    });
+}
+
+void FileWindow::make_folder (const QString &name)
+{
+    std::string dir = subdir_spec (vms_ ? name.toUpper () : name);
+    bool vms = vms_;
+    pnw::RemoteSpec spec = this->spec ();
+    bool proxy = login_.proxy;
+    std::string n = ss (name);
+    run ("Making " + name, [=] (pnw::Api &api, pnw::DapSession &s, Reply &r) {
+        if (!vms) {
+            s.make_directory (dir);
+        } else {
+            dcl_result (pnw::run_dcl (api, spec, proxy, "PNWDIR",
+                "$ CREATE/DIRECTORY " + dir + "\n" + dcl_report ()), "Making " + n);
+        }
+        r.message = "Made " + dir;
     });
 }
 
@@ -677,11 +803,37 @@ void FileWindow::ask_upload ()
     if (!files.isEmpty ()) upload (files);
 }
 
+void FileWindow::ask_new_folder ()
+{
+    bool ok = false;
+    QString name = QInputDialog::getText (this, "New folder",
+        "Name of the new folder in " + location () + ":", QLineEdit::Normal, {}, &ok).trimmed ();
+    if (!ok || name.isEmpty ()) return;
+    // VMS: up to 39 letters, digits, $, _ and -.  Elsewhere: no slashes.
+    static const QRegularExpression vms_name ("^[A-Za-z0-9$_-]{1,39}$");
+    if (vms_ ? !vms_name.match (name).hasMatch ()
+             : name.contains ('/') || name == "." || name == "..") {
+        QMessageBox::warning (this, "New folder", "\"" + name + "\" can't be a folder name here."
+                              + (vms_ ? " On VMS it's up to 39 letters, digits, $, _ and -." : ""));
+        return;
+    }
+    for (const QString &have : names ())
+        if (have.chopped (have.endsWith ('/') ? 1 : 0).compare (name, Qt::CaseInsensitive) == 0) {
+            QMessageBox::warning (this, "New folder", name + " is already there.");
+            return;
+        }
+    make_folder (name);
+}
+
 void FileWindow::ask_remove ()
 {
-    QStringList names = selected (true);
+    QStringList names = selected (false);
     if (names.isEmpty ()) return;
-    QString what = names.size () == 1 ? names[0] : QString ("%1 files").arg (names.size ());
+    int dirs = 0;
+    for (const QString &n : names) dirs += is_dir (n);
+    QString what = names.size () == 1 ? names[0]
+                 : QString ("%1 %2").arg (names.size ())
+                       .arg (dirs == names.size () ? "folders" : dirs ? "items" : "files");
     if (QMessageBox::question (this, "Delete", "Delete " + what + " from " + location () + "?")
         == QMessageBox::Yes)
         remove (names);

@@ -20,6 +20,7 @@
 #include <QDir>
 #include <QProcess>
 #include <QFile>
+#include <QFileInfo>
 #include <QLineEdit>
 #include <QMouseEvent>
 #include <QPlainTextEdit>
@@ -55,7 +56,9 @@ private:
     static bool done (gui::FileWindow &w, QSignalSpy &spy)
     {
         if (spy.isEmpty () && !spy.wait (20000)) return false;
-        bool ok = spy.takeFirst ().at (0).toBool ();
+        QList<QVariant> r = spy.takeFirst ();
+        bool ok = r.at (0).toBool ();
+        if (!ok) qInfo ("operation failed: %s", qPrintable (r.at (1).toString ()));
         return ok;
     }
 
@@ -267,6 +270,27 @@ private slots:
         QVERIFY (done (*w, spy));
         QCOMPARE (read_all (root + "/sub/up.txt"), QByteArray ("uploaded\nfrom the desktop\n"));
 
+        // Folders: made, refused while not empty, then removed.
+        w->make_folder ("made");
+        QVERIFY (done (*w, spy));
+        QVERIFY (w->names ().contains ("made/"));
+        QVERIFY (QFileInfo (root + "/made").isDir ());
+        w->upload ({ t.fileName () }, "made");
+        QVERIFY (done (*w, spy));
+        w->remove ({ "made" });
+        QVERIFY (!done (*w, spy));                  // not empty
+        QVERIFY (QFile::exists (root + "/made/up.txt"));
+        w->open_dir ("made");
+        QVERIFY (done (*w, spy));
+        w->remove ({ "up.txt" });
+        QVERIFY (done (*w, spy));
+        w->up ();
+        QVERIFY (done (*w, spy));
+        w->remove ({ "made" });
+        QVERIFY (done (*w, spy));
+        QVERIFY (!w->names ().contains ("made/"));
+        QVERIFY (!QFileInfo::exists (root + "/made"));
+
         // A directory that is not there: an error, said so.
         w->go_to ("nosuch/");
         QVERIFY (!done (*w, spy));
@@ -340,6 +364,27 @@ private slots:
             QTest::qWait (300);
             mail.grab ().save (shots + "/mail.png");
         }
+
+        // Folders, which on VMS go through DCL: made, refused while
+        // something is in them, then removed.
+        w->make_folder ("pnwguidir");
+        QVERIFY (done (*w, spy));
+        QVERIFY2 (w->names ().contains ("PNWGUIDIR/"), qPrintable (w->names ().join (' ')));
+        w->upload ({ t.fileName () }, "PNWGUIDIR");
+        QVERIFY (done (*w, spy));
+        w->remove ({ "PNWGUIDIR" });
+        QVERIFY (!done (*w, spy));                  // not empty
+        w->open_dir ("PNWGUIDIR");
+        QVERIFY (done (*w, spy));
+        QCOMPARE (w->names (), QStringList { "PNWGUI.TXT" });
+        w->remove ({ "PNWGUI.TXT" });
+        QVERIFY (done (*w, spy));                   // and an empty listing is no error
+        QVERIFY (w->names ().isEmpty ());
+        w->up ();
+        QVERIFY (done (*w, spy));
+        w->remove ({ "PNWGUIDIR" });
+        QVERIFY (done (*w, spy));
+        QVERIFY (!w->names ().contains ("PNWGUIDIR/"));
 
         w->remove ({ "PNWGUI.TXT" });
         QVERIFY (done (*w, spy));

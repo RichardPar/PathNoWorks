@@ -164,6 +164,10 @@ double-check that spec before pressing Enter.
 pnw-delete 'VMS"u p"::[U]*.LIS;*'
 ```
 
+On a dnfal node, a directory spec with no file name removes that
+directory, if it's empty: `pnw-delete 'NODE::old/'`. A spec with no name
+at all is refused rather than taken to mean every file.
+
 ## pnw-rename
 
 Renames one file on one node. The new name may repeat the node, but it

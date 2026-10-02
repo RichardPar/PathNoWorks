@@ -77,7 +77,9 @@ public slots:
     void download (const QStringList &names, const QString &local_dir);
     // Into the directory shown, or into a subdirectory of it.
     void upload (const QStringList &local_paths, const QString &into = {});
+    // Files and directories; a directory must be empty.
     void remove (const QStringList &names);
+    void make_folder (const QString &name);
     void rename_file (const QString &from, const QString &to);
     void view (const QString &name);
 
@@ -108,11 +110,17 @@ private:
     std::string listing_spec () const;
     std::string file_spec (const QString &name, const QString &subdir = {}) const;
     QString dir_spec () const;          // the current directory, no wildcard
+    // A subdirectory of the one shown: as a directory ("sub/", "[.SUB]"),
+    // and the spec that lists what's in it.
+    std::string subdir_spec (const QString &name) const;
+    std::string subdir_listing (const QString &name) const;
+    bool is_dir (const QString &name) const;
 
     QStringList selected (bool files_only) const;
     void ask_download ();
     void ask_upload ();
     void ask_remove ();
+    void ask_new_folder ();
     void ask_rename ();
     void toggle_mount ();
     void start_drag ();
@@ -131,7 +139,7 @@ private:
     FileList  *list_;
     QLineEdit *path_;
     QLabel    *status_;
-    QAction   *up_, *refresh_, *download_, *upload_, *delete_, *rename_,
+    QAction   *up_, *refresh_, *download_, *upload_, *newdir_, *delete_, *rename_,
               *mount_, *terminal_, *decw_;
     QString    last_dir_;               // where downloads went last
     std::vector<std::unique_ptr<QTemporaryDir>> drag_dirs_;

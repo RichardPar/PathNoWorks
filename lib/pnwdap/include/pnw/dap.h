@@ -45,6 +45,9 @@ public:
         : ApiError (s.str ()), status_ (s) {}
     const dapm::Status &status () const noexcept { return status_; }
 
+    // "File not found" or "no files found": an empty listing, to some.
+    bool not_found () const noexcept;
+
 private:
     dapm::Status status_;
 };
@@ -120,6 +123,12 @@ public:
     // Rename one file.
     void rename (const std::string &from, const std::string &to);
 
+    // Make or remove a directory, named as a directory: "sub/" or "[.SUB]".
+    // dnfal does both, removing only an empty directory.  VMS's FAL does
+    // neither (see run_dcl); other FALs may refuse.
+    void make_directory (const std::string &dir);
+    void remove_directory (const std::string &dir);
+
     // Trace every message to stderr.
     void set_trace (bool on) noexcept { trace_ = on; }
 
@@ -136,6 +145,16 @@ private:
     bool                        trace_ = false;
     bool                        configured_ = false;
 };
+
+// Run DCL on a VMS node, as a DECnet task under spec's login (or proxy):
+// write commands to TASK.COM in the login directory, connect to the task,
+// and collect what the procedure writes to SYS$NET, one line per message,
+// until it closes the link.  The procedure is deleted afterwards.  commands
+// are DCL lines, "$ " included; PNW$NET is open for writing on the link.
+// Only VMS has DCL; elsewhere the task connect is refused.
+std::vector<std::string> run_dcl (Api &api, const RemoteSpec &spec, bool proxy,
+                                  const std::string &task,
+                                  const std::string &commands);
 
 }   // namespace pnw
 
