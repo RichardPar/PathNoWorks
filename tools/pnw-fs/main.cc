@@ -12,6 +12,11 @@
 //
 // One DAP session serves every request, so FUSE runs single threaded.
 // Any error drops the session; the next request makes a new one.
+//
+// On Windows this is WinFsp's FUSE 3 layer, mounted on a drive letter or a
+// directory that does not exist yet, and unmounted with Ctrl-C:
+//
+//     pnw-fs 'VMS"user password"::DUA0:[USER]' V:
 
 #define FUSE_USE_VERSION 31
 #include <fuse.h>
@@ -28,8 +33,13 @@
 #include <string>
 #include <vector>
 
+#ifdef _WIN32
+#include <fcntl.h>
+#include <windows.h>
+#else
 #include <sys/stat.h>
 #include <unistd.h>
+#endif
 
 namespace dapm = decnet::dap;
 using decnet::Bytes;
@@ -37,14 +47,53 @@ using decnet::ByteView;
 
 namespace {
 
+// The types in the FUSE callbacks.  WinFsp has its own, under MSVC, as the
+// C runtime's are not the POSIX ones.
+#ifdef _WIN32
+using fs_stat     = ::fuse_stat;
+using fs_statvfs  = ::fuse_statvfs;
+using fs_timespec = ::fuse_timespec;
+using fs_off_t    = fuse_off_t;
+using fs_mode_t   = fuse_mode_t;
+using fs_uid_t    = fuse_uid_t;
+using fs_gid_t    = fuse_gid_t;
+#ifndef O_ACCMODE
+#define O_ACCMODE (O_RDONLY | O_WRONLY | O_RDWR)
+#endif
+
+// Load winfsp-x64.dll, which is linked delay loaded: it is in WinFsp's own
+// bin directory, not on PATH.  What WinFsp's FspLoad does, without the rest
+// of winfsp.h.
+bool load_winfsp ()
+{
+    if (::LoadLibraryW (L"winfsp-x64.dll")) return true;
+    wchar_t dir[MAX_PATH];
+    DWORD size = sizeof dir;
+    if (::RegGetValueW (HKEY_LOCAL_MACHINE, L"Software\\WOW6432Node\\WinFsp",
+                        L"InstallDir", RRF_RT_REG_SZ, nullptr, dir, &size)
+        != ERROR_SUCCESS)
+        return false;
+    std::wstring dll = std::wstring (dir) + L"bin\\winfsp-x64.dll";
+    return ::LoadLibraryW (dll.c_str ()) != nullptr;
+}
+#else
+using fs_stat     = struct stat;
+using fs_statvfs  = struct statvfs;
+using fs_timespec = timespec;
+using fs_off_t    = off_t;
+using fs_mode_t   = mode_t;
+using fs_uid_t    = uid_t;
+using fs_gid_t    = gid_t;
+#endif
+
 // How long a directory listing is believed.
 constexpr std::time_t LISTING_TTL = 5;
 
 struct Entry {
     bool        dir = false;
-    off_t       size = 0;
+    fs_off_t    size = 0;
     std::time_t mtime = 0;
-    mode_t      mode = 0;
+    fs_mode_t   mode = 0;
 };
 
 struct Listing {
@@ -145,17 +194,17 @@ int guard (F f)
     }
 }
 
-mode_t mode_from (const dapm::Protection &p, bool dir)
+fs_mode_t mode_from (const dapm::Protection &p, bool dir)
 {
     // Owner, group and world; the DEC system class has no Unix place.
     auto bits = [&] (const decnet::dap::Ext &deny) {
-        mode_t m = 0;
+        fs_mode_t m = 0;
         if (!deny[dapm::Protection::no_read])  m |= 4;
         if (!deny[dapm::Protection::no_write]) m |= 2;
         if (!deny[dapm::Protection::no_exec] || dir) m |= 1;
         return m;
     };
-    mode_t m = 0;
+    fs_mode_t m = 0;
     if (p.menu[dapm::Protection::m_own]) m |= bits (p.own) << 6;
     if (p.menu[dapm::Protection::m_grp]) m |= bits (p.grp) << 3;
     if (p.menu[dapm::Protection::m_wld]) m |= bits (p.wld);
@@ -177,8 +226,8 @@ const Listing &list (Mount &m, const std::string &dir)
         Entry en;
         en.dir = n->directory;
         if (!en.dir && e.attributes) {
-            if (auto sz = e.attributes->size ()) en.size = static_cast<off_t> (*sz);
-            else if (auto b = e.blocks ()) en.size = static_cast<off_t> (*b * 512);
+            if (auto sz = e.attributes->size ()) en.size = static_cast<fs_off_t> (*sz);
+            else if (auto b = e.blocks ()) en.size = static_cast<fs_off_t> (*b * 512);
         }
         en.mtime = now;
         if (e.dates) {
@@ -189,7 +238,7 @@ const Listing &list (Mount &m, const std::string &dir)
         en.mode = e.protection && mode_from (*e.protection, en.dir)
                 ? mode_from (*e.protection, en.dir)
                 : (en.dir ? 0755 : 0644);
-        if (!m.rw) en.mode &= static_cast<mode_t> (~0222);
+        if (!m.rw) en.mode &= static_cast<fs_mode_t> (~0222);
         l.entries[n->name] = en;
     }
     return m.dirs[dir] = std::move (l);
@@ -211,13 +260,19 @@ void *fs_init (fuse_conn_info *, fuse_config *cfg)
     return fuse_get_context ()->private_data;
 }
 
-int fs_getattr (const char *cpath, struct stat *st, fuse_file_info *)
+int fs_getattr (const char *cpath, fs_stat *st, fuse_file_info *)
 {
     return guard ([&] (Mount &m) {
         std::memset (st, 0, sizeof *st);
         std::string path = cpath;
+#ifdef _WIN32
+        // The mounting user; "-o uid=-1,gid=-1" below makes these that.
+        st->st_uid = fuse_get_context ()->uid;
+        st->st_gid = fuse_get_context ()->gid;
+#else
         st->st_uid = ::getuid ();
         st->st_gid = ::getgid ();
+#endif
         st->st_nlink = 1;
         if (path == "/") {
             st->st_mode = S_IFDIR | 0755;
@@ -228,8 +283,8 @@ int fs_getattr (const char *cpath, struct stat *st, fuse_file_info *)
         for (const auto &[fh, f] : m.files) {
             if (f.path == path) {
                 st->st_mode = S_IFREG | 0644;
-                st->st_size = static_cast<off_t> (f.data.size ());
-                st->st_mtime = std::time (nullptr);
+                st->st_size = static_cast<fs_off_t> (f.data.size ());
+                st->st_mtim.tv_sec = std::time (nullptr);
                 return 0;
             }
         }
@@ -241,13 +296,13 @@ int fs_getattr (const char *cpath, struct stat *st, fuse_file_info *)
         st->st_mode = (e.dir ? S_IFDIR : S_IFREG) | e.mode;
         st->st_size = e.size;
         st->st_blocks = (e.size + 511) / 512;
-        st->st_mtime = st->st_ctime = st->st_atime = e.mtime;
+        st->st_mtim.tv_sec = st->st_ctim.tv_sec = st->st_atim.tv_sec = e.mtime;
         if (e.dir) st->st_nlink = 2;
         return 0;
     });
 }
 
-int fs_readdir (const char *cpath, void *buf, fuse_fill_dir_t fill, off_t,
+int fs_readdir (const char *cpath, void *buf, fuse_fill_dir_t fill, fs_off_t,
                 fuse_file_info *, fuse_readdir_flags)
 {
     return guard ([&] (Mount &m) {
@@ -284,7 +339,7 @@ int fs_open (const char *cpath, fuse_file_info *fi)
     });
 }
 
-int fs_create (const char *cpath, mode_t, fuse_file_info *fi)
+int fs_create (const char *cpath, fs_mode_t, fuse_file_info *fi)
 {
     return guard ([&] (Mount &m) {
         if (!m.rw) return -EROFS;
@@ -298,7 +353,7 @@ int fs_create (const char *cpath, mode_t, fuse_file_info *fi)
     });
 }
 
-int fs_read (const char *, char *buf, size_t size, off_t off, fuse_file_info *fi)
+int fs_read (const char *, char *buf, size_t size, fs_off_t off, fuse_file_info *fi)
 {
     auto it = mount ().files.find (fi->fh);
     if (it == mount ().files.end ()) return -EBADF;
@@ -309,7 +364,7 @@ int fs_read (const char *, char *buf, size_t size, off_t off, fuse_file_info *fi
     return static_cast<int> (n);
 }
 
-int fs_write (const char *, const char *buf, size_t size, off_t off,
+int fs_write (const char *, const char *buf, size_t size, fs_off_t off,
               fuse_file_info *fi)
 {
     auto it = mount ().files.find (fi->fh);
@@ -322,7 +377,7 @@ int fs_write (const char *, const char *buf, size_t size, off_t off,
     return static_cast<int> (size);
 }
 
-int fs_truncate (const char *cpath, off_t size, fuse_file_info *fi)
+int fs_truncate (const char *cpath, fs_off_t size, fuse_file_info *fi)
 {
     return guard ([&] (Mount &m) {
         if (!m.rw) return -EROFS;
@@ -416,16 +471,16 @@ int fs_rename (const char *from, const char *to, unsigned int flags)
 }
 
 // DAP has no way to make or remove a directory through FAL.
-int fs_mkdir (const char *, mode_t) { return -EPERM; }
+int fs_mkdir (const char *, fs_mode_t) { return -EPERM; }
 int fs_rmdir (const char *) { return -EPERM; }
 
 // Attributes a remote file does not have in the Unix sense.  Accepted and
 // ignored, so that "cp -p" and "touch" work.
-int fs_chmod (const char *, mode_t, fuse_file_info *) { return 0; }
-int fs_chown (const char *, uid_t, gid_t, fuse_file_info *) { return 0; }
-int fs_utimens (const char *, const timespec *, fuse_file_info *) { return 0; }
+int fs_chmod (const char *, fs_mode_t, fuse_file_info *) { return 0; }
+int fs_chown (const char *, fs_uid_t, fs_gid_t, fuse_file_info *) { return 0; }
+int fs_utimens (const char *, const fs_timespec *, fuse_file_info *) { return 0; }
 
-int fs_statfs (const char *, struct statvfs *st)
+int fs_statfs (const char *, fs_statvfs *st)
 {
     std::memset (st, 0, sizeof *st);
     st->f_bsize = st->f_frsize = 512;
@@ -438,7 +493,12 @@ void usage ()
 {
     std::cerr <<
         "usage: pnw-fs [options] NODE::directory mountpoint\n"
+#ifdef _WIN32
+        "  Mount a directory on a DECnet node, on a drive letter (V:) or a\n"
+        "  directory not yet there.  Unmount with Ctrl-C.\n"
+#else
         "  Mount a directory on a DECnet node.  Unmount with fusermount3 -u.\n"
+#endif
         "  --rw        allow writing, deleting and renaming\n"
         "  --proxy     without a user, ask for proxy access as the local user\n"
         "  -s socket   decnetd API socket (default $DECNETAPI or "
@@ -487,9 +547,20 @@ int main (int argc, char **argv)
     // Single threaded: one DAP session serves everything.
     fuse_args.push_back ("-s");
     fuse_args.push_back ("-o");
+#ifdef _WIN32
+    // WinFsp's options: the volume label Explorer shows, and files owned
+    // by whoever mounted it.  Read only is enforced here, in the calls.
+    fuse_args.push_back ("uid=-1,gid=-1,volname=" + m->spec.node
+                         + ",FileSystemName=PNW");
+    if (!load_winfsp ()) {
+        std::cerr << "pnw-fs: WinFsp is not installed\n";
+        return 1;
+    }
+#else
     // Say read only to the kernel too, so tools see it before trying.
     fuse_args.push_back ("fsname=" + m->spec.node + "::" + m->spec.path
                          + ",subtype=pnw" + (m->rw ? "" : ",ro"));
+#endif
     fuse_args.push_back (pos[1]);
 
     fuse_operations ops {};

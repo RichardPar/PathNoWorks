@@ -3,6 +3,8 @@
 
 #include "pnw/names.h"
 
+#include "decnet/common/platform.h"     // localtime_r on Windows
+
 #include <iostream>
 
 namespace {

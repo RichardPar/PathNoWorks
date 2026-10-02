@@ -149,7 +149,7 @@ private slots:
         gui::decw_reset_apps ();
         QCOMPARE (gui::decw_apps ().size (), gui::decw_default_apps ().size ());
 
-        // A picture of the Customize dialog, if asked.
+        // A picture of the Customise dialog, if asked.
         QString shots = env ("PNW_TEST_SHOTS");
         if (!shots.isEmpty ()) {
             QTimer::singleShot (500, [shots] {

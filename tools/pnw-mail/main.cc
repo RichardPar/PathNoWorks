@@ -18,9 +18,14 @@
 #include <string>
 #include <vector>
 
+#ifdef _WIN32
+#include <direct.h>
+#include <windows.h>
+#else
 #include <pwd.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#endif
 
 namespace {
 
@@ -32,8 +37,29 @@ std::string upper (std::string s)
 
 std::string login_name ()
 {
+#ifdef _WIN32
+    char buf[256];
+    DWORD len = sizeof buf;
+    if (::GetUserNameA (buf, &len)) return upper (buf);
+#else
     if (const passwd *pw = ::getpwuid (::geteuid ())) return upper (pw->pw_name);
+#endif
     return "USER";
+}
+
+// ~/Mail, made if need be.  On Windows, ~ is %USERPROFILE%.
+std::string mail_dir ()
+{
+#ifdef _WIN32
+    const char *home = std::getenv ("USERPROFILE");
+    std::string dir = std::string (home ? home : ".") + "/Mail";
+    ::_mkdir (dir.c_str ());
+#else
+    const char *home = std::getenv ("HOME");
+    std::string dir = std::string (home ? home : ".") + "/Mail";
+    ::mkdir (dir.c_str (), 0700);
+#endif
+    return dir;
 }
 
 std::vector<std::string> split (const std::string &s, char sep)
@@ -119,12 +145,7 @@ int send (pnw::Api &api, const std::string &subject,
 
 int listen (pnw::Api &api, std::string mbox, bool trace)
 {
-    if (mbox.empty ()) {
-        const char *home = std::getenv ("HOME");
-        std::string dir = std::string (home ? home : ".") + "/Mail";
-        ::mkdir (dir.c_str (), 0700);
-        mbox = dir + "/decnet";
-    }
+    if (mbox.empty ()) mbox = mail_dir () + "/decnet";
     api.bind (27, "MAIL");
     std::cerr << "%PNW-I-LISTENING, for DECnet mail to " << api.system ()
               << "::, into " << mbox << "\n";

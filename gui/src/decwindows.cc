@@ -10,6 +10,7 @@
 #include <QCoreApplication>
 #include <QDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QHBoxLayout>
@@ -21,6 +22,13 @@
 #include <QMenu>
 #include <QProcess>
 #include <QSettings>
+
+#ifdef Q_OS_WIN
+#include "decnet/common/platform.h"
+
+#include <QRandomGenerator>
+#include <QThread>
+#endif
 
 namespace gui {
 
@@ -128,6 +136,145 @@ namespace {
 QProcess   *bridge = nullptr;
 QStringList allowed;
 
+// DEC's font names, if decw-font-aliases.py has made them.
+QString decw_font_dir ()
+{
+    return QDir::home ().filePath (".local/share/fonts/decwindows");
+}
+
+#ifdef Q_OS_WIN
+
+// ---------------------------------------------- the X server, on Windows
+//
+// Windows has no X server running as a matter of course, so the desktop
+// starts VcXsrv when DECwindows is first wanted: display :0, each program
+// in a window of its own, and a login cookie, which pnw-x11 hands on to
+// the programs it lets in.  Without one VcXsrv would want -ac, letting
+// anyone on the network onto the screen.
+
+// Is an X server answering on display n here?
+bool x_listening (int n)
+{
+    int fd = decnet::sock_open (AF_INET, SOCK_STREAM);
+    if (fd < 0) return false;
+    sockaddr_in a {};
+    a.sin_family = AF_INET;
+    a.sin_addr.s_addr = htonl (INADDR_LOOPBACK);
+    a.sin_port = htons (static_cast<std::uint16_t> (6000 + n));
+    bool ok = ::connect (fd, reinterpret_cast<sockaddr *> (&a), sizeof a) == 0;
+    decnet::sock_close (fd);
+    return ok;
+}
+
+QString xauthority_path ()
+{
+    QString x = qEnvironmentVariable ("XAUTHORITY");
+    return x.isEmpty () ? QDir::home ().filePath (".Xauthority") : x;
+}
+
+// Make sure the .Xauthority file has a MIT-MAGIC-COOKIE-1 for display 0,
+// adding one if not.  Entries: family, then address, display number, name
+// and data, each a 16-bit big-endian length and its bytes.
+bool ensure_cookie (const QString &path, QString *error)
+{
+    QByteArray all;
+    if (QFile f (path); f.open (QIODevice::ReadOnly)) all = f.readAll ();
+    int at = 0;
+    auto u16 = [&] () -> int {
+        if (at + 2 > all.size ()) return -1;
+        int v = (static_cast<unsigned char> (all[at]) << 8) | static_cast<unsigned char> (all[at + 1]);
+        at += 2;
+        return v;
+    };
+    auto field = [&] (QByteArray &out) {
+        int n = u16 ();
+        if (n < 0 || at + n > all.size ()) return false;
+        out = all.mid (at, n);
+        at += n;
+        return true;
+    };
+    while (at < all.size ()) {
+        QByteArray addr, number, name, data;
+        if (u16 () < 0 || !field (addr) || !field (number) || !field (name) || !field (data))
+            break;
+        if (name == "MIT-MAGIC-COOKIE-1" && (number.isEmpty () || number == "0"))
+            return true;
+    }
+    QByteArray cookie (16, '\0');
+    QRandomGenerator::system ()->fillRange (reinterpret_cast<quint32 *> (cookie.data ()), 4);
+    auto put = [] (QByteArray &b, const QByteArray &s) {
+        b.append (static_cast<char> (s.size () >> 8)).append (static_cast<char> (s.size ()));
+        b.append (s);
+    };
+    QByteArray entry ("\xff\xff", 2);            // FamilyWild: any host
+    put (entry, QByteArray ());
+    put (entry, "0");
+    put (entry, "MIT-MAGIC-COOKIE-1");
+    put (entry, cookie);
+    QFile f (path);
+    if (!f.open (QIODevice::Append)) {
+        if (error) *error = "cannot write " + path;
+        return false;
+    }
+    f.write (entry);
+    return true;
+}
+
+QString vcxsrv_dir ()
+{
+    QSettings reg ("HKEY_LOCAL_MACHINE\\SOFTWARE\\VcXsrv", QSettings::NativeFormat);
+    for (const char *key : { "Install_Dir_64", "Install_Dir" }) {
+        QString d = reg.value (key).toString ();
+        if (!d.isEmpty () && QFile::exists (d + "/vcxsrv.exe")) return d;
+    }
+    QString d = qEnvironmentVariable ("ProgramFiles", "C:/Program Files") + "/VcXsrv";
+    return QFile::exists (d + "/vcxsrv.exe") ? d : QString ();
+}
+
+// An X server on display :0, started if there is none.
+bool ensure_x_server (QString *error)
+{
+    if (x_listening (0)) return true;           // VcXsrv or another, already up
+    QString dir = vcxsrv_dir ();
+    if (dir.isEmpty ()) {
+        if (error) *error = "No X server is running, and VcXsrv is not installed.\n"
+                            "Install VcXsrv (https://github.com/marchaesen/vcxsrv), "
+                            "or start an X server on display :0.";
+        return false;
+    }
+    QString auth = xauthority_path ();
+    if (!ensure_cookie (auth, error)) return false;
+    QStringList args { ":0", "-multiwindow", "-clipboard", "-wgl",
+                       "-auth", QDir::toNativeSeparators (auth) };
+    // VcXsrv's own font path, and DEC's names after it.  Given -fp, VcXsrv
+    // takes neither the relative paths of its default ("./fonts/misc/") nor
+    // "C:/..." (the colon and slash read as a font server's address): only
+    // full paths with backslashes.  Any it cannot use are dropped, and with
+    // them gone it has only its built-in fixed font.  No trailing
+    // backslash, either: in a quoted argument it would escape the quote.
+    if (QFile::exists (decw_font_dir () + "/fonts.alias")) {
+        QStringList fp;
+        for (const char *d : { "misc", "TTF", "OTF", "Type1", "100dpi", "75dpi",
+                               "cyrillic", "Speedo", "terminus-font" })
+            if (QFileInfo (dir + "/fonts/" + d).isDir ())
+                fp << QDir::toNativeSeparators (dir + "/fonts/" + d);
+        fp << QDir::toNativeSeparators (decw_font_dir ());
+        args << "-fp" << fp.join (',');
+    }
+    if (!QProcess::startDetached (dir + "/vcxsrv.exe", args, dir)) {
+        if (error) *error = "cannot start " + dir + "/vcxsrv.exe";
+        return false;
+    }
+    for (int i = 0; i < 100 && !x_listening (0); ++i) QThread::msleep (100);
+    if (!x_listening (0)) {
+        if (error) *error = "VcXsrv did not start answering on display :0";
+        return false;
+    }
+    return true;
+}
+
+#endif
+
 }   // namespace
 
 bool decw_bridge (const QString &node, QString *error)
@@ -143,17 +290,27 @@ bool decw_bridge (const QString &node, QString *error)
         if (error) *error = "pnw-x11 not found";
         return false;
     }
+#ifdef Q_OS_WIN
+    if (!ensure_x_server (error)) return false;
+#endif
     if (!allowed.contains (n)) allowed << n;
 
     // Start again with the wider list: one bridge serves display 0.
     if (bridge) {
+#ifdef Q_OS_WIN
+        // terminate () asks a window to close, and pnw-x11 has none.
+        bridge->kill ();
+#else
         bridge->terminate ();
+#endif
         bridge->waitForFinished (3000);
         delete bridge;
     }
+#ifndef Q_OS_WIN
     // DEC's font names, if decw-font-aliases.py has made them: the font
-    // path lasts only as long as the X session, so add it each time.
-    QString fonts = QDir::home ().filePath (".local/share/fonts/decwindows");
+    // path lasts only as long as the X session, so add it each time.  (On
+    // Windows the X server's own font path is set where it is started.)
+    QString fonts = decw_font_dir ();
     if (QFile::exists (fonts + "/fonts.alias")) {
         QProcess q;
         q.start ("xset", { "q" });
@@ -163,7 +320,9 @@ bool decw_bridge (const QString &node, QString *error)
             QProcess::execute ("xset", { "fp", "rehash" });
         }
     }
+#endif
     bridge = new QProcess (QCoreApplication::instance ());
+    no_console_window (*bridge);
     bridge->setProcessChannelMode (QProcess::MergedChannels);
     bridge->start (tool, { "--socket", api_socket (), "serve", "--allow", allowed.join (',') });
     if (!bridge->waitForStarted (5000)) {
@@ -377,7 +536,7 @@ QMenu *decw_menu (QWidget *parent, std::function<void (const DecwApp &)> pick)
         for (const DecwApp &a : decw_apps ())
             m->addAction (QIcon::fromTheme (a.icon), a.label, parent, [pick, a] { pick (a); });
         m->addSeparator ();
-        m->addAction (QIcon::fromTheme ("configure"), "Customize...", parent,
+        m->addAction (QIcon::fromTheme ("configure"), "Customise...", parent,
                       [parent] { decw_customize (parent); });
     };
     build ();

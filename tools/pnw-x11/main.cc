@@ -13,12 +13,19 @@
 // sends with this user's MIT-MAGIC-COOKIE-1 from .Xauthority, as ssh's X11
 // forwarding does.  Anyone it lets in can see and type into the whole
 // screen, so serve lets in only the nodes it is told to.
+//
+// On Windows the local X server (VcXsrv, Xming) is reached over TCP, port
+// 6000 + n on this machine, and connect listens there too: its clients use
+// DISPLAY=localhost:d.
 
 #include "pnw/api.h"
+
+#include "decnet/common/socket.h"
 
 #include <algorithm>
 #include <cerrno>
 #include <csignal>
+#include <cstddef>
 #include <cstring>
 #include <fstream>
 #include <iostream>
@@ -28,14 +35,29 @@
 #include <string>
 #include <vector>
 
+#ifdef _WIN32
+#define SOCK_CLOEXEC 0
+#else
 #include <poll.h>
-#include <pwd.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/un.h>
 #include <unistd.h>
+#endif
 
 namespace {
+
+using decnet::sock_close;
+
+// A pollfd for input on fd.  On Windows the fd member is a SOCKET, so a
+// braced initialiser from an int will not do.
+pollfd poll_in (int fd)
+{
+    pollfd p {};
+    p.fd = fd;
+    p.events = POLLIN;
+    return p;
+}
 
 using pnw::Bytes;
 using pnw::ByteView;
@@ -74,9 +96,16 @@ void usage ()
         "  --allow-any       accept any node (anyone on the network can then\n"
         "                    read your keyboard and screen)\n"
         "  --display D       the local X server for serve (default $DISPLAY):\n"
+#ifdef _WIN32
+        "                    :0 (TCP port 6000 on this machine), or the path\n"
+        "                    of its socket\n"
+        "  --listen PATH     for connect, a socket to make instead of\n"
+        "                    listening on localhost:d\n"
+#else
         "                    :0, or the path of its socket\n"
         "  --listen PATH     for connect, the socket to make instead of\n"
         "                    /tmp/.X11-unix/Xd\n"
+#endif
         "  --socket s        decnetd API socket (default $DECNETAPI or "
         "/tmp/decnetapi.sock)\n"
         "  --trace           log connections and byte counts\n";
@@ -98,25 +127,71 @@ std::optional<int> display_number (const std::string &d)
     return std::stoi (n);
 }
 
+#ifndef _WIN32
 std::string x_socket_path (int n) { return "/tmp/.X11-unix/X" + std::to_string (n); }
+#endif
 
 int connect_unix (const std::string &path, bool abstract)
 {
-    int fd = ::socket (AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
+    int fd = decnet::sock_open (AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC);
     if (fd < 0) return -1;
     sockaddr_un a {};
     a.sun_family = AF_UNIX;
     std::size_t off = abstract ? 1 : 0;
-    if (path.size () + off >= sizeof a.sun_path) { ::close (fd); return -1; }
+    if (path.size () + off >= sizeof a.sun_path) { sock_close (fd); return -1; }
     std::memcpy (a.sun_path + off, path.data (), path.size ());
     socklen_t len = static_cast<socklen_t> (offsetof (sockaddr_un, sun_path) + off + path.size ()
                                             + (abstract ? 0 : 1));
     if (::connect (fd, reinterpret_cast<sockaddr *> (&a), len) < 0) {
-        ::close (fd);
+        sock_close (fd);
         return -1;
     }
     return fd;
 }
+
+#ifdef _WIN32
+
+// X over TCP, the only way on Windows: display n is port 6000 + n here.
+constexpr int x_tcp_base = 6000;
+
+sockaddr_in x_tcp_address (int n)
+{
+    sockaddr_in a {};
+    a.sin_family = AF_INET;
+    a.sin_addr.s_addr = htonl (INADDR_LOOPBACK);
+    a.sin_port = htons (static_cast<std::uint16_t> (x_tcp_base + n));
+    return a;
+}
+
+int connect_tcp_x (int n)
+{
+    sockaddr_in a = x_tcp_address (n);
+    int fd = decnet::sock_open (AF_INET, SOCK_STREAM);
+    if (fd < 0) return -1;
+    if (::connect (fd, reinterpret_cast<sockaddr *> (&a), sizeof a) < 0) {
+        sock_close (fd);
+        return -1;
+    }
+    decnet::Socket s (fd);
+    s.set_nodelay ();               // X requests are small and many
+    return s.release ();
+}
+
+// connect's display d, for local clients: TCP on this machine only.
+int listen_tcp_x (int d)
+{
+    sockaddr_in a = x_tcp_address (d);
+    int fd = decnet::sock_open (AF_INET, SOCK_STREAM);
+    if (fd < 0) return -1;
+    if (::bind (fd, reinterpret_cast<sockaddr *> (&a), sizeof a) < 0
+        || ::listen (fd, 16) < 0) {
+        sock_close (fd);
+        return -1;
+    }
+    return fd;
+}
+
+#endif
 
 // The local X server: a display, or a socket path.
 int connect_local_x (const std::string &display)
@@ -124,10 +199,14 @@ int connect_local_x (const std::string &display)
     if (!display.empty () && display[0] == '/') return connect_unix (display, false);
     auto n = display_number (display);
     if (!n) return -1;
+#ifdef _WIN32
+    return connect_tcp_x (*n);
+#else
     std::string path = x_socket_path (*n);
     // Xorg listens on both; the abstract one works inside sandboxes too.
     int fd = connect_unix (path, true);
     return fd >= 0 ? fd : connect_unix (path, false);
+#endif
 }
 
 // This user's MIT-MAGIC-COOKIE-1 for local display n, from $XAUTHORITY or
@@ -137,13 +216,19 @@ int connect_local_x (const std::string &display)
 std::optional<Bytes> local_cookie (int n)
 {
     std::string path;
+#ifdef _WIN32
+    const char *home = std::getenv ("USERPROFILE");
+#else
+    const char *home = std::getenv ("HOME");
+#endif
     if (const char *x = std::getenv ("XAUTHORITY")) path = x;
-    else if (const char *h = std::getenv ("HOME")) path = std::string (h) + "/.Xauthority";
+    else if (home) path = std::string (home) + "/.Xauthority";
     std::ifstream in (path, std::ios::binary);
     if (!in) return std::nullopt;
     Bytes all ((std::istreambuf_iterator<char> (in)), std::istreambuf_iterator<char> ());
 
     char host[256] = {};
+    decnet::net_init ();
     ::gethostname (host, sizeof host - 1);
     std::size_t at = 0;
     auto u16 = [&] () -> std::optional<unsigned> {
@@ -213,8 +298,8 @@ bool write_all (int fd, ByteView b)
 {
     std::size_t off = 0;
     while (off < b.size ()) {
-        ssize_t n = ::send (fd, b.data () + off, b.size () - off, MSG_NOSIGNAL);
-        if (n < 0 && errno == EINTR) continue;
+        ssize_t n = decnet::sock_send (fd, b.data () + off, b.size () - off);
+        if (n < 0 && decnet::sock_interrupted (decnet::sock_errno ())) continue;
         if (n <= 0) return false;
         off += static_cast<std::size_t> (n);
     }
@@ -268,8 +353,8 @@ public:
     void from_socket (std::int64_t h, Conn &c)
     {
         std::uint8_t buf[65536];
-        ssize_t n = ::recv (c.fd, buf, sizeof buf, 0);
-        if (n < 0 && errno == EINTR) return;
+        ssize_t n = decnet::sock_recv (c.fd, buf, sizeof buf);
+        if (n < 0 && decnet::sock_interrupted (decnet::sock_errno ())) return;
         if (n <= 0) { close (h, "closed"); return; }
         c.out += static_cast<std::uint64_t> (n);
         try {
@@ -284,7 +369,7 @@ public:
         auto it = conns_.find (h);
         if (it == conns_.end ()) return;
         Conn &c = it->second;
-        if (c.fd >= 0) ::close (c.fd);
+        if (c.fd >= 0) sock_close (c.fd);
         try { if (c.link->open ()) c.link->disconnect (); } catch (...) {}
         std::cerr << "%PNW-I-XCLOSED, " << c.who << ": " << why;
         if (o_.trace) std::cerr << " (" << c.in << " bytes in, " << c.out << " out)";
@@ -359,7 +444,7 @@ public:
         } catch (const std::exception &e) {
             std::cerr << "%PNW-E-XCONNECT, to " << node << "::" << o_.number << ": "
                       << e.what () << "\n";
-            ::close (fd);
+            sock_close (fd);
         }
     }
 
@@ -379,15 +464,19 @@ int run (pnw::Api &api, Bridge &b, int listen_fd, const std::string &node)
 {
     while (!stop) {
         std::vector<pollfd> fds;
-        fds.push_back ({ api.fd (), POLLIN, 0 });
-        if (listen_fd >= 0) fds.push_back ({ listen_fd, POLLIN, 0 });
+        fds.push_back (poll_in (api.fd ()));
+        if (listen_fd >= 0) fds.push_back (poll_in (listen_fd));
         std::vector<std::int64_t> order;
         for (auto &[h, c] : b.conns ()) {
-            fds.push_back ({ c.fd, POLLIN, 0 });
+            fds.push_back (poll_in (c.fd));
             order.push_back (h);
         }
-        int r = ::poll (fds.data (), fds.size (), api.buffered () ? 0 : 1000);
-        if (r < 0 && errno != EINTR) { std::perror ("poll"); return 1; }
+        int r = decnet::sock_poll (fds.data (), fds.size (), api.buffered () ? 0 : 1000);
+        if (r < 0 && !decnet::sock_interrupted (decnet::sock_errno ())) {
+            std::cerr << "pnw-x11: poll: "
+                      << decnet::sock_strerror (decnet::sock_errno ()) << "\n";
+            return 1;
+        }
         try {
             b.decnet_ready ();
         } catch (const std::exception &e) {
@@ -397,7 +486,11 @@ int run (pnw::Api &api, Bridge &b, int listen_fd, const std::string &node)
         std::size_t at = 1;
         if (listen_fd >= 0) {
             if (fds[at].revents & POLLIN) {
+#ifdef _WIN32
+                int fd = decnet::sock_accept (listen_fd);
+#else
                 int fd = ::accept4 (listen_fd, nullptr, nullptr, SOCK_CLOEXEC);
+#endif
                 if (fd >= 0) b.new_client (fd, node);
             }
             ++at;
@@ -409,7 +502,7 @@ int run (pnw::Api &api, Bridge &b, int listen_fd, const std::string &node)
         }
     }
     for (auto &[h, c] : b.conns ()) {
-        if (c.fd >= 0) ::close (c.fd);
+        if (c.fd >= 0) sock_close (c.fd);
         try { c.link->disconnect (); } catch (...) {}
     }
     return 0;
@@ -431,7 +524,7 @@ int serve (const Options &o)
         std::cerr << "pnw-x11: cannot reach the X server at " << o.display << "\n";
         return 1;
     }
-    ::close (probe);
+    sock_close (probe);
 
     pnw::Api api (o.socket);
     Bridge b (api, o);
@@ -449,22 +542,43 @@ int serve (const Options &o)
 int connect_out (const Options &o, std::string node)
 {
     if (auto sep = node.find ("::"); sep != std::string::npos) node = node.substr (0, sep);
+#ifdef _WIN32
+    if (o.listen.empty ()) {
+        // Windows X clients use TCP: a port in use is someone's display.
+        int lfd = listen_tcp_x (o.local);
+        if (lfd < 0) {
+            std::cerr << "pnw-x11: display localhost:" << o.local
+                      << " is in use: pick another display with -d\n";
+            return 1;
+        }
+        pnw::Api api (o.socket);
+        Bridge b (api, o);
+        std::cerr << "%PNW-I-XLISTENING, DISPLAY=localhost:" << o.local
+                  << " goes to " << upper (node) << "::" << o.number << "\n";
+        int rc = run (api, b, lfd, node);
+        sock_close (lfd);
+        return rc;
+    }
+    std::string path = o.listen;
+#else
     std::string path = o.listen.empty () ? x_socket_path (o.local) : o.listen;
     if (o.listen.empty ()) ::mkdir ("/tmp/.X11-unix", 01777);
+#endif
     // A socket left by a bridge that died can go; one still answering
     // belongs to a real display.
     if (int fd = connect_unix (path, false); fd >= 0) {
-        ::close (fd);
+        sock_close (fd);
         std::cerr << "pnw-x11: " << path << " is in use: pick another display with -d\n";
         return 1;
     }
     ::unlink (path.c_str ());
-    int lfd = ::socket (AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
+    int lfd = decnet::sock_open (AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC);
     sockaddr_un a {};
     a.sun_family = AF_UNIX;
     std::strncpy (a.sun_path, path.c_str (), sizeof a.sun_path - 1);
     if (::bind (lfd, reinterpret_cast<sockaddr *> (&a), sizeof a) < 0 || ::listen (lfd, 16) < 0) {
-        std::cerr << "pnw-x11: cannot listen on " << path << ": " << std::strerror (errno) << "\n";
+        std::cerr << "pnw-x11: cannot listen on " << path << ": "
+                  << decnet::sock_strerror (decnet::sock_errno ()) << "\n";
         return 1;
     }
     pnw::Api api (o.socket);
@@ -474,7 +588,7 @@ int connect_out (const Options &o, std::string node)
     else std::cerr << path;
     std::cerr << " goes to " << upper (node) << "::" << o.number << "\n";
     int rc = run (api, b, lfd, node);
-    ::close (lfd);
+    sock_close (lfd);
     ::unlink (path.c_str ());
     return rc;
 }
@@ -485,6 +599,11 @@ int main (int argc, char **argv)
 {
     Options o;
     if (const char *d = std::getenv ("DISPLAY")) o.display = d;
+#ifdef _WIN32
+    // Windows X servers (VcXsrv, Xming) seldom set DISPLAY; :0 is where
+    // they start.
+    if (o.display.empty ()) o.display = ":0";
+#endif
     std::string cmd;
     std::vector<std::string> args;
     for (int i = 1; i < argc; ++i) {
@@ -504,7 +623,9 @@ int main (int argc, char **argv)
     }
     std::signal (SIGINT, on_signal);
     std::signal (SIGTERM, on_signal);
+#ifndef _WIN32
     std::signal (SIGPIPE, SIG_IGN);
+#endif
     try {
         if (cmd == "serve" && args.empty ()) return serve (o);
         if (cmd == "connect" && args.size () == 1) {

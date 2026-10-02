@@ -53,7 +53,7 @@ void decw_launch (QObject *ctx, const QString &node, const Login &login,
 // Edit the list in a dialog; true if it was changed.
 bool decw_customize (QWidget *parent);
 
-// A menu of the programs, ending in Customize...; pick is called with the
+// A menu of the programs, ending in Customise...; pick is called with the
 // one chosen.
 QMenu *decw_menu (QWidget *parent, std::function<void (const DecwApp &)> pick);
 

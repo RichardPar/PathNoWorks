@@ -17,8 +17,12 @@
 #include <cstdio>
 #include <iostream>
 
+#ifdef _WIN32
+#include <windows.h>
+#else
 #include <pwd.h>
 #include <unistd.h>
+#endif
 
 namespace pnw {
 
@@ -30,6 +34,19 @@ namespace {
 
 // FAL is object 17.
 constexpr const char *FAL_OBJECT = "17";
+
+// The name of the user running this, for proxy access.
+std::string local_user ()
+{
+#ifdef _WIN32
+    char buf[256];
+    DWORD len = sizeof buf;
+    return ::GetUserNameA (buf, &len) ? std::string (buf) : std::string ();
+#else
+    const passwd *pw = ::getpwuid (::geteuid ());
+    return pw ? std::string (pw->pw_name) : std::string ();
+#endif
+}
 
 // How long to wait for any one message.  Listing a big directory on a slow
 // node can take a while between messages.
@@ -122,8 +139,8 @@ DapSession::DapSession (Api &api, const RemoteSpec &spec, bool proxy)
     o.account = spec.account;
     if (spec.user.empty () && proxy) {
         // Proxy access: say who we are here and let the far end decide.
-        if (const passwd *pw = ::getpwuid (::geteuid ())) {
-            o.username = pw->pw_name;
+        if (std::string me = local_user (); !me.empty ()) {
+            o.username = me;
             for (char &ch : o.username)
                 ch = static_cast<char> (std::toupper (static_cast<unsigned char> (ch)));
             o.proxy = true;

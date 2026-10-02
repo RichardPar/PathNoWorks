@@ -33,10 +33,10 @@ pnw-x11 connect VAXXY -d 20 &            # DISPLAY=:20 means VAXXY::0
 | `--allow NODE,...` | (serve) the nodes allowed to open windows, by name or address |
 | `--allow-any` | (serve) any node at all; see below before using it |
 | `-n n` | (serve) the display to offer, object `X$Xn`; default 0 |
-| `--display D` | (serve) the local X server; default `$DISPLAY`. `:0`, or its socket's path |
+| `--display D` | (serve) the local X server; default `$DISPLAY` (`:0` on Windows). `:0`, or its socket's path |
 | `-d n` | (connect) the local display to make; default 20 |
-| `--listen PATH` | (connect) the socket to make instead of `/tmp/.X11-unix/Xn` |
-| `--socket s` | decnetd's API socket; default `$DECNETAPI`, then `/tmp/decnetapi.sock` |
+| `--listen PATH` | (connect) the socket to make instead of `/tmp/.X11-unix/Xn` (on Windows, instead of TCP port 6000 + n) |
+| `--socket s` | decnetd's API socket; default `$DECNETAPI`, then `/tmp/decnetapi.sock` (`%TEMP%\decnetapi.sock` on Windows) |
 | `--trace` | log each connection, with byte counts |
 
 ## A word about trust
@@ -62,6 +62,68 @@ that the way SSH's X forwarding does. It reads your cookie from
 `$XAUTHORITY` (or `~/.Xauthority`) and swaps it into each connection's
 first message, whatever the far end sent. If there's no cookie to be
 found, it says so at startup and passes the connection on unchanged.
+
+## On Windows: VcXsrv
+
+Windows has no X server of its own, so you need one. Use
+**[VcXsrv](https://github.com/marchaesen/vcxsrv)**: it's free, it's
+maintained, and in its multi-window mode each DECwindows program becomes
+an ordinary Windows window, much as eXcursion made them. Download the
+installer, `vcxsrv-64.<version>.installer.exe`, from the project's
+releases page:
+
+<https://github.com/marchaesen/vcxsrv/releases>
+
+or install it from a command prompt with winget:
+
+```
+winget install marha.VcXsrv
+```
+
+The defaults are fine. PathNoWorks was tried with 21.1.16.1. (Xming's free
+version is years out of date; X410, from the Microsoft Store, also works
+but isn't free. WSLg won't do: its X server lives inside WSL, out of
+reach of Windows programs.)
+
+**From the desktop, that's all.** The first time you start a DECwindows
+program, the desktop looks for an X server on display `:0`. If there isn't
+one, it starts VcXsrv (found through its registry entry) like this:
+
+```
+vcxsrv.exe :0 -multiwindow -clipboard -wgl -auth %USERPROFILE%\.Xauthority
+```
+
+and adds a cookie for display 0 to `%USERPROFILE%\.Xauthority` if there
+isn't one already. VcXsrv carries on running after the desktop closes, as
+an X server you'd started yourself would. If you've started an X server
+yourself, the desktop uses that instead.
+
+**Running pnw-x11 by hand**, start VcXsrv first. The simplest way is
+XLaunch (it comes with VcXsrv): choose *Multiple windows*, display 0, and
+on the last page add `-auth %USERPROFILE%\.Xauthority` under additional
+parameters. You'll need a cookie in that file. Running a DECwindows
+program from the desktop once makes one, or use VcXsrv's own `xauth.exe`.
+Then:
+
+```
+pnw-x11 serve --allow VAXXY
+```
+
+`--display` defaults to `:0` on Windows, because VcXsrv doesn't set
+`DISPLAY`. On Windows X goes over TCP: display *n* is port 6000 + *n* on
+this machine. `connect` listens the same way, so its clients use
+`DISPLAY=localhost:20`.
+
+**Don't use `-ac`**, much as many guides suggest it. It switches off
+VcXsrv's access control, and VcXsrv listens on every network interface,
+not just this machine. With `-ac`, anyone who can reach your PC can open
+windows on your screen and read your keystrokes. With `-auth` only holders
+of the cookie get in, and `pnw-x11 serve` hands it only to nodes in
+`--allow`. When VcXsrv first starts, Windows Firewall asks whether to let
+it accept connections. You can say no: pnw-x11 reaches it from this
+machine, which the firewall doesn't block.
+
+DEC's fonts work on VcXsrv too; see [below](#decs-fonts).
 
 ## From VMS
 
@@ -145,6 +207,25 @@ PathNoWorks desktop adds it every time it starts the bridge. If you run
 ```sh
 xset +fp ~/.local/share/fonts/decwindows/
 ```
+
+**On Windows**, run the script with Python on the font files, with no
+`--install`. VcXsrv has no `xlsfonts` or `xset`, so the script reads
+VcXsrv's own font lists instead of asking the running server:
+
+```
+py tools\pnw-x11\decw-font-aliases.py C:\vms-fonts
+```
+
+The aliases go in the same place, `%USERPROFILE%\.local\share\fonts\decwindows`.
+Leave that place alone: the Microsoft Store's Python quietly diverts
+anything written under AppData into a private copy no other program sees.
+The desktop adds the folder to VcXsrv's font path when it starts VcXsrv.
+If VcXsrv is already running, quit it (its icon in the notification area)
+and the next DECwindows program starts it again with the fonts. To start
+VcXsrv by hand with them, give `-fp` VcXsrv's own font folders and then
+this one. Use full paths with backslashes and no backslash at the end: on
+a `-fp` VcXsrv silently drops `./fonts/...` and `C:/...` paths, and keeps
+only a built-in fixed font.
 
 Fonts in DEC's private character sets (DECtech, DECmath, the
 presentation bullets) get no stand-in: a Latin-1 font would show the

@@ -18,8 +18,12 @@
 
 #include <map>
 
+#ifdef Q_OS_WIN
+#include <windows.h>
+#else
 #include <pwd.h>
 #include <unistd.h>
+#endif
 
 namespace gui {
 
@@ -28,7 +32,13 @@ namespace {
 std::string login_name ()
 {
     std::string n = "USER";
+#ifdef Q_OS_WIN
+    char buf[256];
+    DWORD len = sizeof buf;
+    if (::GetUserNameA (buf, &len)) n = buf;
+#else
     if (const passwd *pw = ::getpwuid (::geteuid ())) n = pw->pw_name;
+#endif
     for (char &c : n) c = static_cast<char> (std::toupper (static_cast<unsigned char> (c)));
     return n;
 }

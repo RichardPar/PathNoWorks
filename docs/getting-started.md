@@ -62,7 +62,20 @@ to the user decnetd runs as; use `660` and a group to share it.
 
 `/tmp/decnetapi.sock` is where every tool looks by default, so nothing
 else needs setting. Put the socket elsewhere and tell the tools with
-`$DECNETAPI` or `-s path`.
+`$DECNETAPI` or `-s path`. On Windows the default is `decnetapi.sock` in
+`%TEMP%`, and a plain `api` line puts it there.
+
+For a desktop machine, consider `--on-demand`:
+
+```
+api /tmp/decnetapi.sock --mode 600 --on-demand
+```
+
+decnetd then starts without connecting to the router, brings the circuit
+up when a tool or the desktop first connects, and takes it down again two
+hours after the last one has gone (`--idle seconds` to change that). So
+decnetd can start when you log in and stay off the network until you use
+it.
 
 The same configuration, with comments and the usual additions (DECnet
 straight on an Ethernet, serving files with dnfal), is in

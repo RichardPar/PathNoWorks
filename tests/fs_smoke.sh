@@ -10,6 +10,9 @@ DECNETD=$2
 DNFAL=$3
 
 dir=$(mktemp -d /tmp/pnw.XXXXXX) || exit 1
+# Git Bash on Windows: the native programs need a Windows path, in the
+# config files as well as on the command line.
+case $(uname -s) in MINGW*|MSYS*) dir=$(cd "$dir" && pwd -W) ;; esac
 port=$(( 20000 + ($$ + 19) % 20000 ))
 pids=
 mnt=$dir/mnt
@@ -22,7 +25,11 @@ cleanup () {
 trap cleanup EXIT
 
 root=$dir/root
-mkdir -p "$root/sub" "$mnt"
+mkdir -p "$root/sub"
+# WinFsp mounts on a directory that does not exist yet, and pnw-fs stays in
+# the foreground there; libfuse wants the directory, and pnw-fs returns
+# once it is mounted.
+case $(uname -s) in MINGW*|MSYS*) winfsp=yes ;; *) winfsp=no; mkdir -p "$mnt" ;; esac
 printf 'line one\nline two\n' > "$root/hello.txt"
 head -c 20000 /dev/urandom > "$root/random.bin"
 echo inner > "$root/sub/inner.txt"
@@ -45,7 +52,22 @@ EOC
 "$DECNETD" "$dir/b.conf" > "$dir/b.log" 2>&1 & pids="$pids $!"
 
 i=0
-until [ -S "$dir/b.sock" ] && \
+if [ $winfsp = yes ]; then
+    until [ -e "$dir/b.sock" ]; do
+        i=$((i + 1)); [ $i -gt 60 ] && { echo "FAIL  no API socket"; exit 1; }
+        sleep 0.5
+    done
+    "$PNWFS" -s "$dir/b.sock" --rw 'NODEA::' "$mnt" 2>"$dir/mount.err" &
+    pids="$pids $!"
+    until [ -e "$mnt/hello.txt" ]; do
+        i=$((i + 1))
+        if [ $i -gt 60 ]; then
+            echo "FAIL  could not mount"; cat "$dir/mount.err"; exit 1
+        fi
+        sleep 0.5
+    done
+else
+until [ -e "$dir/b.sock" ] && \
       "$PNWFS" -s "$dir/b.sock" --rw 'NODEA::' "$mnt" 2>"$dir/mount.err"; do
     i=$((i + 1))
     if [ $i -gt 60 ]; then
@@ -53,6 +75,7 @@ until [ -S "$dir/b.sock" ] && \
     fi
     sleep 0.5
 done
+fi
 
 fails=0
 ok ()   { echo "ok    $1"; }

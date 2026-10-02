@@ -8,8 +8,22 @@
                                    connect, check the login the server saw,
                                    then round-trip 200 KB
     x11_fake.py refused SOCKET     connect and expect to be dropped
+    x11_fake.py probe SOCKET       exit 0 if something is listening
+
+A SOCKET is a path, or tcp:PORT on this machine: Python has no Unix
+sockets on Windows, where X goes over TCP anyway.
 """
 import os, socket, struct, sys, threading
+
+def endpoint (where):
+    if where.startswith ("tcp:"):
+        return socket.AF_INET, ("127.0.0.1", int (where[4:]))
+    return socket.AF_UNIX, where        # not on Windows: there is no AF_UNIX
+
+def connect (where):
+    family, addr = endpoint (where)
+    s = socket.socket (family); s.settimeout (20); s.connect (addr)
+    return s
 
 def read_exact (s, n):
     b = b""
@@ -22,8 +36,9 @@ def read_exact (s, n):
 def pad (n): return (n + 3) & ~3
 
 def server (path):
-    if os.path.exists (path): os.unlink (path)
-    l = socket.socket (socket.AF_UNIX); l.bind (path); l.listen (8)
+    family, addr = endpoint (path)
+    if family != socket.AF_INET and os.path.exists (path): os.unlink (path)
+    l = socket.socket (family); l.bind (addr); l.listen (8)
     def one (c):
         try:
             hdr = read_exact (c, 12)
@@ -57,7 +72,7 @@ def setup ():
             data + b"\0" * (pad (len (data)) - len (data)))
 
 def client (path, cookie):
-    s = socket.socket (socket.AF_UNIX); s.settimeout (20); s.connect (path)
+    s = connect (path)
     s.sendall (setup ())
     line = b""
     while not line.endswith (b"\n"): line += read_exact (s, 1)
@@ -71,7 +86,7 @@ def client (path, cookie):
     print ("ok    login replaced, 200000 bytes round trip")
 
 def refused (path):
-    s = socket.socket (socket.AF_UNIX); s.settimeout (20); s.connect (path)
+    s = connect (path)
     try:
         s.sendall (setup ())
         got = s.recv (100)
@@ -83,9 +98,16 @@ def refused (path):
     if got: sys.exit ("FAIL refused: got data %r" % got)
     print ("ok    a node not allowed is turned away")
 
+def probe (path):
+    try:
+        connect (path).close ()
+    except OSError:
+        sys.exit (1)
+
 if __name__ == "__main__":
     cmd = sys.argv[1]
     if cmd == "server": server (sys.argv[2])
     elif cmd == "xauth": xauth (sys.argv[2], sys.argv[3])
     elif cmd == "client": client (sys.argv[2], sys.argv[3])
     elif cmd == "refused": refused (sys.argv[2])
+    elif cmd == "probe": probe (sys.argv[2])

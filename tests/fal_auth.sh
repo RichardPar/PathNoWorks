@@ -9,6 +9,9 @@ DECNETD=$2
 DNFAL=$3
 
 dir=$(mktemp -d /tmp/pnw.XXXXXX) || exit 1
+# Git Bash on Windows: the native programs need a Windows path, in the
+# config files as well as on the command line.
+case $(uname -s) in MINGW*|MSYS*) dir=$(cd "$dir" && pwd -W) ;; esac
 port=$(( 20000 + ($$ + 13) % 20000 ))
 pids=
 cleanup () {
@@ -55,7 +58,7 @@ EOC
 
 S="-s $dir/b.sock"
 i=0
-until [ -S "$dir/b.sock" ] && \
+until [ -e "$dir/b.sock" ] && \
       "$TOOLS/pnw-dir" $S 'NODEA"guest"::*' >/dev/null 2>&1; do
     i=$((i + 1))
     if [ $i -gt 60 ]; then

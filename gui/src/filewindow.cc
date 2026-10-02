@@ -40,6 +40,7 @@
 #include <cerrno>
 #include <cstring>
 #include <fstream>
+#include <map>
 
 namespace gui {
 
@@ -746,6 +747,86 @@ QString FileWindow::mount_point () const
     return QDir::home ().filePath ("DECnet/" + node_);
 }
 
+#ifdef Q_OS_WIN
+
+// WinFsp's pnw-fs stays running while mounted, and unmounts when it ends:
+// so a mount here is a pnw-fs process, one per mount point, which ends
+// with this program.
+namespace {
+std::map<QString, QProcess *> &mounts ()
+{
+    static std::map<QString, QProcess *> m;
+    return m;
+}
+}   // namespace
+
+bool FileWindow::mounted () const
+{
+    auto it = mounts ().find (mount_point ());
+    return it != mounts ().end () && it->second->state () == QProcess::Running;
+}
+
+void FileWindow::toggle_mount ()
+{
+    QString mp = mount_point ();
+    if (mounted ()) {
+        QProcess *p = mounts ()[mp];
+        p->kill ();
+        p->waitForFinished (5000);
+        status_->setText ("Unmounted " + mp);
+        update_actions ();
+        return;
+    }
+    QString tool = find_tool ("pnw-fs");
+    if (tool.isEmpty ()) {
+        QMessageBox::warning (this, "Mount", "pnw-fs is not built: it needs WinFsp.");
+        return;
+    }
+    // WinFsp makes the mount point itself; it must not exist yet.
+    QDir ().mkpath (QFileInfo (mp).path ());
+    QDir ().rmdir (mp);
+    QString spec = node_;
+    if (!login_.user.isEmpty ()) {
+        spec += "\"" + login_.user;
+        if (!login_.password.isEmpty ()) spec += " " + login_.password;
+        spec += "\"";
+    }
+    spec += "::" + (dir_spec () == "[]" ? QString () : dir_spec ());
+    QStringList args { "-s", api_socket (), "--rw" };
+    if (login_.proxy && login_.user.isEmpty ()) args << "--proxy";
+    args << spec << QDir::toNativeSeparators (mp);
+
+    if (auto it = mounts ().find (mp); it != mounts ().end ()) {
+        delete it->second;
+        mounts ().erase (it);
+    }
+    auto *p = new QProcess (QCoreApplication::instance ());
+    no_console_window (*p);
+    p->start (tool, args);
+    // Mounted once the directory appears; or pnw-fs gives up.
+    QProgressDialog wait ("Mounting " + location () + "...", QString (), 0, 0, this);
+    wait.setWindowModality (Qt::WindowModal);
+    wait.setMinimumDuration (400);
+    for (int i = 0; i < 300 && !QFileInfo::exists (mp); ++i) {
+        if (p->waitForFinished (100)) break;
+        QCoreApplication::processEvents ();
+    }
+    if (p->state () != QProcess::Running || !QFileInfo::exists (mp)) {
+        p->kill ();
+        p->waitForFinished (3000);
+        QMessageBox::warning (this, "Mount", "pnw-fs could not mount " + location () + ":\n"
+                              + QString::fromLocal8Bit (p->readAllStandardError ()));
+        delete p;
+        return;
+    }
+    mounts ()[mp] = p;
+    status_->setText ("Mounted " + location () + " on " + QDir::toNativeSeparators (mp));
+    update_actions ();
+    QDesktopServices::openUrl (QUrl::fromLocalFile (mp));
+}
+
+#else
+
 bool FileWindow::mounted () const
 {
     QFile f ("/proc/self/mounts");
@@ -796,5 +877,7 @@ void FileWindow::toggle_mount ()
     update_actions ();
     QDesktopServices::openUrl (QUrl::fromLocalFile (mp));
 }
+
+#endif
 
 }   // namespace gui
