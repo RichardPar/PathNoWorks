@@ -12,7 +12,7 @@
 #   --debug             cppdecnet's sanitizer build (-DCPPDECNET_FLAVOUR=debug)
 #   --build-dir DIR     where to build; default ./build
 #   --cppdecnet DIR     cppdecnet's checkout; default ../Decnet/cppdecnet
-#   --branch NAME       cppdecnet's branch to clone; default PathNoWorksAPI
+#   --branch NAME       cppdecnet's branch to clone; default main
 #   --pydecnet DIR      PyDECnet's checkout; default ../Decnet/pydecnet
 #   -j N                parallel jobs; default all CPUs
 #   -h, --help          this
@@ -34,8 +34,7 @@ pydecnet=$here/../Decnet/pydecnet
 jobs=$(nproc 2>/dev/null || echo 4)
 
 CPPDECNET_URL=https://github.com/RichardPar/cppdecnet.git
-# The API PathNoWorks uses is on this branch until it reaches main.
-cppdecnet_branch=PathNoWorksAPI
+cppdecnet_branch=main
 PYDECNET_URL=https://github.com/pkoning2/pydecnet.git
 
 while [ $# -gt 0 ]; do

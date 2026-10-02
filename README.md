@@ -239,14 +239,13 @@ PathNoWorks needs cppdecnet, which lives in its own repository at
 [github.com/RichardPar/cppdecnet](https://github.com/RichardPar/cppdecnet).
 PyDECnet, Paul Koning's DECnet in Python, is only needed for some of the
 tests; it's at [github.com/pkoning2/pydecnet](https://github.com/pkoning2/pydecnet).
-Clone them side by side and everything finds everything else. For now,
-PathNoWorks needs cppdecnet's `PathNoWorksAPI` branch, not `main`:
+Clone them side by side and everything finds everything else:
 
 ```sh
 mkdir -p ~/Source/Decnet && cd ~/Source
 git clone https://github.com/RichardPar/PathNoWorks.git
-git clone -b PathNoWorksAPI https://github.com/RichardPar/cppdecnet.git Decnet/cppdecnet
-git clone https://github.com/pkoning2/pydecnet.git    Decnet/pydecnet   # optional
+git clone https://github.com/RichardPar/cppdecnet.git  Decnet/cppdecnet
+git clone https://github.com/pkoning2/pydecnet.git     Decnet/pydecnet   # optional
 ```
 
 which gives you:
