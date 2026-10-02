@@ -52,6 +52,7 @@ private:
     void show_favourites ();            // marks in the table, and the menu
     void add_missing_favourites ();
     void ask_favourite ();
+    void name_soon (const QString &node);
 
     QStandardItemModel *model_;
     NodeFilter         *filter_;

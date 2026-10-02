@@ -27,6 +27,7 @@
 #include <QStatusBar>
 #include <QStyle>
 #include <QTableView>
+#include <QTimer>
 #include <QToolBar>
 #include <QToolButton>
 #include <QVBoxLayout>
@@ -166,6 +167,7 @@ MainWindow::MainWindow (QWidget *parent) : QMainWindow (parent)
             status_->setText (msg.toHtmlEscaped ());
             if (!ok) QMessageBox::warning (this, "DECwindows", msg);
         });
+        name_soon (n);
     });
     nodeMenu->addMenu (decw);
 
@@ -447,12 +449,22 @@ void MainWindow::open_files (const QString &node)
 {
     auto *w = new FileWindow (node);
     w->show ();
+    name_soon (node);
 }
 
 void MainWindow::open_terminal_to (const QString &node)
 {
     QString err;
     if (!open_sethost (node, &err)) QMessageBox::warning (this, "Terminal", err);
+    else name_soon (node);
+}
+
+// A node known only by its address: once a link to it runs, decnetd (with
+// "node @neighbours") asks it its name.  Look again shortly to show it.
+void MainWindow::name_soon (const QString &node)
+{
+    if (node.isEmpty () || !node[0].isDigit ()) return;
+    QTimer::singleShot (5000, this, &MainWindow::refresh);
 }
 
 void MainWindow::write_mail (const QString &to)
