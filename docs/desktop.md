@@ -103,6 +103,11 @@ work, Sixel and ReGIS included, and `SET TERMINAL/INQUIRE` sees a VT340.
 There's more in [pnw-sethost](pnw-sethost.md); `Ctrl-]` `q` gets you
 out.
 
+On Windows it opens [Windows Terminal](https://aka.ms/terminal) at 80x24
+if you have it (it's built into Windows 11; versions from 1.22 show
+Sixel), or a console window if not. If the connection fails, the window
+stays open to say why until you press Enter.
+
 ## DECwindows programs
 
 VMS has a whole desktop's worth of DECwindows programs, and the desktop
@@ -137,14 +142,24 @@ is kept with the desktop's settings and is the same for every node.
 The program runs on the VMS node and draws here. Behind the menu, the
 desktop:
 
-1. starts [`pnw-x11 serve`](pnw-x11.md) if it isn't running, letting that
+1. on Windows, starts VcXsrv if no X server is running; see below;
+2. starts [`pnw-x11 serve`](pnw-x11.md) if it isn't running, letting that
    node in (if you run one yourself, it uses that, and yours has to let
    the node in);
-2. puts a little command procedure, `PNWX<program>.COM`, in your login
+3. puts a little command procedure, `PNWX<program>.COM`, in your login
    directory on the node: it sets the display to this machine and runs
    the program;
-3. connects to it as a DECnet task, which makes VMS run it in a network
+4. connects to it as a DECnet task, which makes VMS run it in a network
    job under your login.
+
+**On Windows** you need an X server, and PathNoWorks uses
+[VcXsrv](https://github.com/marchaesen/vcxsrv). Get the installer from
+<https://github.com/marchaesen/vcxsrv/releases>, or run
+`winget install marha.VcXsrv`. That's the only setup. The desktop starts
+VcXsrv itself, with each program in a window of its own, and gives it a
+login cookie so only the nodes the bridge lets in can reach your screen.
+Details, and how to do it by hand, are in
+[pnw-x11](pnw-x11.md#on-windows-vcxsrv).
 
 The file window uses the login it already has; from the main window
 you're asked for one, and the dialog remembers the last login for each
@@ -164,7 +179,8 @@ are separate VMS processes, and closing the window ends them.
 DEC's fonts aren't on a Linux X server, so programs make do with
 substitutes. For much better ones, give DEC's font names to your own
 fonts with [`decw-font-aliases.py`](pnw-x11.md#decs-fonts); the desktop
-puts them on the X server's font path whenever it starts the bridge. A
+puts them on the X server's font path whenever it starts the bridge
+(on Windows, when it starts VcXsrv). A
 few characters from DEC's own character sets (the calculator's
 square-root key) stay blank either way.
 
