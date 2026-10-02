@@ -220,13 +220,13 @@ private slots:
         QVERIFY (done (*w, spy));
         QVERIFY (w->names ().contains ("hello.txt"));
 
-        // Copy here.
+        // Download.
         QTemporaryDir tmp;
         w->download ({ "hello.txt" }, tmp.path ());
         QVERIFY (done (*w, spy));
         QCOMPARE (read_all (tmp.filePath ("hello.txt")), read_all (root + "/hello.txt"));
 
-        // Copy there, text and binary.
+        // Upload, text and binary.
         QFile t (tmp.filePath ("up.txt"));
         QVERIFY (t.open (QIODevice::WriteOnly));
         t.write ("uploaded\nfrom the desktop\n");

@@ -192,10 +192,14 @@ FileWindow::FileWindow (const QString &node, const Login &login,
     auto *ops = addToolBar ("Actions");
     ops->setMovable (false);
     ops->setToolButtonStyle (Qt::ToolButtonTextBesideIcon);
-    download_ = ops->addAction (QIcon::fromTheme ("document-save"), "Copy here...",
-                                this, &FileWindow::ask_download);
-    upload_ = ops->addAction (QIcon::fromTheme ("document-open"), "Copy there...",
-                              this, &FileWindow::ask_upload);
+    download_ = ops->addAction (QIcon::fromTheme ("folder-download",
+                                                  QIcon::fromTheme ("document-save")),
+                                "Download...", this, &FileWindow::ask_download);
+    download_->setToolTip ("Copy the selected files from the node to a folder on this computer");
+    upload_ = ops->addAction (QIcon::fromTheme ("folder-upload",
+                                                QIcon::fromTheme ("document-open")),
+                              "Upload...", this, &FileWindow::ask_upload);
+    upload_->setToolTip ("Copy files from this computer to the directory shown");
     rename_ = ops->addAction (QIcon::fromTheme ("edit-rename"), "Rename...",
                               this, &FileWindow::ask_rename);
     rename_->setShortcut (QKeySequence ("F2"));
@@ -436,7 +440,7 @@ void FileWindow::run (const QString &what, Op op, bool relist)
             text->setReadOnly (true);
             text->setFont (QFontDatabase::systemFont (QFontDatabase::FixedFont));
             if (binary)
-                text->setPlainText (QString ("%1 bytes of binary data. Use Copy here "
+                text->setPlainText (QString ("%1 bytes of binary data. Use Download "
                                              "to save it.").arg (c.size ()));
             else
                 text->setPlainText (QString::fromLatin1 (c));
@@ -659,13 +663,16 @@ void FileWindow::ask_download ()
 {
     QStringList names = selected (true);
     if (names.isEmpty ()) return;
-    QString dir = QFileDialog::getExistingDirectory (this, "Copy to", last_dir_);
+    QString dir = QFileDialog::getExistingDirectory (
+        this, QString ("Download %1 file%2 to")
+                  .arg (names.size ()).arg (names.size () == 1 ? "" : "s"),
+        last_dir_);
     if (!dir.isEmpty ()) download (names, dir);
 }
 
 void FileWindow::ask_upload ()
 {
-    QStringList files = QFileDialog::getOpenFileNames (this, "Copy to " + location (),
+    QStringList files = QFileDialog::getOpenFileNames (this, "Upload to " + location (),
                                                        QDir::homePath ());
     if (!files.isEmpty ()) upload (files);
 }

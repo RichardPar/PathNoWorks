@@ -67,8 +67,9 @@ A node's files open in a window of their own:
   FAL.
 - **Looking at a file.** Double-click it. Text shows up in a viewer;
   binary files just say so.
-- **Copying.** **Copy here** copies the selected files to a local folder.
-  **Copy there** copies local files to the directory shown. Text and
+- **Copying.** **Download** copies the selected files from the node to a
+  folder on this computer. **Upload** copies files from this computer to
+  the directory shown. Text and
   binary are told apart the same way `pnw-copy` does it.
 - **Drag and drop.** Drop files from your file manager onto the window
   and they go to the directory shown. Drop them on a directory's row and
@@ -229,7 +230,7 @@ QT_QPA_PLATFORM=offscreen PNW_TEST_SOCKET=/tmp/decnetapi.sock \
 - Files dragged out are fetched whole before the drag starts, so
   dragging a big file takes as long as copying it. The copies are kept in
   a temporary folder until the window closes.
-- Copy here, Delete and dragging work on files only, not whole
+- Download, Delete and dragging work on files only, not whole
   directories.
 - There are no LAT terminals or MOP in the desktop yet; `pnw-lat` and
   `pnw-mop` are waiting on the command line.
