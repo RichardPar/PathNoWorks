@@ -1,6 +1,6 @@
 # PathNoWorks
 
-> *Path-No-works, but it works. Mostly. On Linux.*
+> *Path-No-works, but it works. Mostly. On Linux.and now Windows too!!!!*
 
 Back in the day, if you had a PC on a DEC site you probably had Pathworks
 on it: DECnet for your desktop, so the PC could see the VAXen down the
